@@ -1,7 +1,7 @@
 # study-Auth — OAuth 2.0 / OpenID Connect をライブラリ無しで理解する
 
 「Google アカウントでログインすると、自分のプロフィール画面にメールアドレスと名前を表示する Web アプリ」を
-Go の標準ライブラリだけで作り、OAuth 2.0 (Authorization Code Flow + PKCE) と OIDC の各ステップを
+Go で OAuth ライブラリを使わずに作り、OAuth 2.0 (Authorization Code Flow + PKCE) と OIDC の各ステップを
 ブラウザの Network タブとサーバーログで確認する。
 
 ## 実装要件（縛り）
