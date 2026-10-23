@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"net/http"
 	"sync"
 	"time"
@@ -17,6 +15,11 @@ const sessionCookieName = "sid"
 type Session struct {
 	ID        string
 	CreatedAt time.Time
+
+	// State は /authorize に付けて送り、/callback で返ってきた値と照合する一回限りの乱数。
+	// 「この /callback リクエストは、このブラウザが始めたログインフローの続きである」ことを
+	// 保証する（ログイン CSRF 対策）。照合したら空にして使い捨てにする。
+	State string
 }
 
 // SessionStore はメモリ上のセッション置き場。再起動で消える（学習用途なので割り切る）。
@@ -29,19 +32,9 @@ func NewSessionStore() *SessionStore {
 	return &SessionStore{sessions: make(map[string]*Session)}
 }
 
-// newSessionID は 32 バイトの乱数を base64url にしたセッション ID を返す。
-// 推測されるとセッションを乗っ取られるので crypto/rand を使う。
-func newSessionID() string {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
-	}
-	return base64.RawURLEncoding.EncodeToString(b)
-}
-
 // Create は新しいセッションを作ってストアに登録し、Cookie をレスポンスに付ける。
 func (s *SessionStore) Create(w http.ResponseWriter) *Session {
-	sess := &Session{ID: newSessionID(), CreatedAt: time.Now()}
+	sess := &Session{ID: randomToken(32), CreatedAt: time.Now()}
 
 	s.mu.Lock()
 	s.sessions[sess.ID] = sess
