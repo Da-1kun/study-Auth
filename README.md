@@ -4,6 +4,64 @@
 Go で OAuth ライブラリを使わずに作り、OAuth 2.0 (Authorization Code Flow + PKCE) と OIDC の各ステップを
 ブラウザの Network タブとサーバーログで確認する。
 
+## 最終的なアウトプット（全体像）
+
+ブラウザ・自作アプリ・Google の 3 者間で流れる通信の全体図。矢印の `[Step N]` が README 下部のステップに対応する。
+今どこを作っているかはこの図で確認する。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as ユーザー
+    participant B as ブラウザ
+    participant A as 自作アプリ<br/>localhost:8080
+    participant G as Google<br/>accounts.google.com
+    participant T as Google<br/>/token
+    participant J as Google<br/>JWKS
+    participant I as Google<br/>userinfo
+
+    U->>B: 「Google でログイン」をクリック
+    B->>A: GET /login
+    Note over A: [Step 1] state 生成 → セッション保存<br/>[Step 2] code_verifier 生成 → セッション保存<br/>code_challenge = BASE64URL(SHA256(verifier))<br/>[Step 3] nonce 生成、/authorize URL を組み立て
+    A-->>B: 302 Location: /authorize?client_id&redirect_uri&response_type=code<br/>&scope=openid email profile&state&nonce<br/>&code_challenge&code_challenge_method=S256<br/>Set-Cookie: sid=...
+
+    B->>G: GET /o/oauth2/v2/auth?...
+    G-->>B: ログイン画面 / 同意画面
+    U->>G: Google アカウントでログイン・同意
+    G-->>B: 302 Location: http://localhost:8080/callback?code=...&state=...
+
+    B->>A: GET /callback?code=...&state=...  (Cookie: sid=...)
+    Note over A: [Step 1] state をセッションの値と照合（CSRF 対策）
+    A->>T: [Step 4] POST /token<br/>grant_type=authorization_code&code&redirect_uri<br/>&client_id&client_secret&code_verifier
+    Note over T: SHA256(code_verifier) == code_challenge を検証（PKCE）
+    T-->>A: 200 {access_token, id_token, expires_in, scope, token_type}
+
+    Note over A: [Step 5] id_token を "." で分割し base64url デコード<br/>alg=RS256 を確認、header.kid を取り出す
+    A->>J: [Step 5] GET /oauth2/v3/certs
+    J-->>A: 200 {keys: [{kid, n, e, ...}]}
+    Note over A: [Step 5] kid の公開鍵で署名検証（crypto/rsa）<br/>iss / aud / exp / nonce を検証
+
+    A->>I: [Step 6] GET /v1/userinfo<br/>Authorization: Bearer access_token
+    I-->>A: 200 {sub, name, email, picture, ...}
+    Note over A: [Step 6] セッション ID を再発行し、ユーザー情報を保存
+    A-->>B: 302 Location: /profile
+
+    B->>A: GET /profile (Cookie: sid=...)
+    A-->>B: 200 名前とメールアドレスを表示
+```
+
+### どこで何を観察するか
+
+| 見る場所 | 観察できるもの | Step |
+| --- | --- | --- |
+| Network タブ: `/login` のレスポンス | 302 の `Location`（authorize URL の全パラメータ）、`Set-Cookie` | 1, 2, 3 |
+| Network タブ: Google 内の遷移 | ログイン画面、同意画面、最後の `/callback` への 302 | 3 |
+| Network タブ: `/callback` のリクエスト | URL に露出する `code` と `state`、送られる `Cookie` | 1, 4 |
+| サーバーログ | `/token` への POST 本文とレスポンス JSON（ブラウザからは見えない） | 4 |
+| サーバーログ | JWKS 取得、デコードした header / claims、検証結果 | 5 |
+| サーバーログ | userinfo へのリクエストヘッダとレスポンス JSON | 6 |
+| ブラウザ: `/profile` | 名前とメールアドレス | 6 |
+
 ## 実装要件（縛り）
 
 - OAuth ライブラリ禁止
