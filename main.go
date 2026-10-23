@@ -6,7 +6,8 @@ import (
 )
 
 type app struct {
-	cfg Config
+	cfg      Config
+	sessions *SessionStore
 }
 
 func main() {
@@ -14,7 +15,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &app{cfg: cfg}
+	a := &app{cfg: cfg, sessions: NewSessionStore()}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", a.handleIndex)
