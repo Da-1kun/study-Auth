@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,6 +22,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", a.handleIndex)
 	mux.HandleFunc("GET /login", a.handleLogin)
+	mux.HandleFunc("GET /callback", a.handleCallback)
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on http://localhost%s (redirect_uri=%s)", addr, cfg.RedirectURI)
@@ -49,4 +51,39 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintf(w, "state=%s\n", sess.State)
+}
+
+// handleCallback は Google からリダイレクトで戻ってくる先。
+// 現時点では state の照合だけを行う。Step 4 以降で code をトークンに交換する処理を足す。
+func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+
+	// 1. Cookie からセッションを引く。
+	//    無い = このブラウザは /login を通っていない（または Cookie が送られていない）。
+	//    SameSite=Strict にするとここで失敗するので、試すと違いが分かる。
+	sess, ok := a.sessions.Get(r)
+	if !ok {
+		log.Printf("   [callback] no session cookie")
+		http.Error(w, "セッションがありません。/login からやり直してください", http.StatusBadRequest)
+		return
+	}
+
+	// 2. state を照合する。
+	//    ConstantTimeCompare を使うのは、比較にかかる時間から一致した文字数を推測される
+	//    タイミング攻撃を避けるため（== は先頭から比べて不一致で即終了する）。
+	got := q.Get("state")
+	want := sess.State
+	if want == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+		log.Printf("   [callback] state mismatch: got=%q want=%q", got, want)
+		http.Error(w, "state が一致しません", http.StatusBadRequest)
+		return
+	}
+
+	// 3. 照合に成功した state は使い捨てにする。
+	//    同じ URL を再度開かれても（リプレイ）、もう一致しないようにする。
+	sess.State = ""
+	log.Printf("   [callback] state OK (session=%s)", sess.ID)
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintln(w, "state OK")
 }
