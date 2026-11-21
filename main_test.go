@@ -55,7 +55,7 @@ func TestHandleCallback(t *testing.T) {
 				"code_verifier": {"test-verifier"},
 			},
 			tokenCode: http.StatusOK,
-			tokenBody: `{"id_token":"eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2ln"}`,
+			tokenBody: `{"id_token":"eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3Qta2V5In0.eyJzdWIiOiIxMjMifQ.c2ln"}`,
 		},
 		{
 			name:     "missing authorization code",
@@ -74,7 +74,11 @@ func TestHandleCallback(t *testing.T) {
 					RedirectURI: "http://localhost:8080/callback",
 				},
 				sessions: NewSessionStore(),
-				tokenClient: &http.Client{Transport: tokenRoundTripper(func(req *http.Request) (*http.Response, error) {
+				googleClient: &http.Client{Transport: tokenRoundTripper(func(req *http.Request) (*http.Response, error) {
+					if req.Method == http.MethodGet && req.URL.String() == "https://www.googleapis.com/oauth2/v3/certs" {
+						const jwks = `{"keys":[{"kid":"test-key","kty":"RSA","n":"DQ","e":"AQAB"}]}`
+						return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(jwks))}, nil
+					}
 					defer req.Body.Close()
 					if req.Method != http.MethodPost || req.URL.String() != "https://oauth2.googleapis.com/token" {
 						t.Errorf("unexpected token request: %s %s", req.Method, req.URL)

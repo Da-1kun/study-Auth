@@ -35,7 +35,7 @@ func TestExchangeCodeResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := &app{tokenClient: &http.Client{Transport: tokenRoundTripper(func(req *http.Request) (*http.Response, error) {
+			a := &app{googleClient: &http.Client{Transport: tokenRoundTripper(func(req *http.Request) (*http.Response, error) {
 				defer req.Body.Close()
 				return &http.Response{
 					StatusCode: http.StatusOK,

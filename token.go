@@ -44,7 +44,7 @@ func (a *app) exchangeCode(ctx context.Context, code, verifier string) (tokenRes
 		log.Printf("   [token] request\n%s%s", dump, form.Encode())
 	}
 
-	res, err := a.tokenClient.Do(req)
+	res, err := a.googleClient.Do(req)
 	if err != nil {
 		return tokenResponse{}, err
 	}

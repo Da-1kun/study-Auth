@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,9 +13,9 @@ import (
 const googleAuthorizeURL = "https://accounts.google.com/o/oauth2/v2/auth"
 
 type app struct {
-	cfg         Config
-	sessions    *SessionStore
-	tokenClient *http.Client
+	cfg          Config
+	sessions     *SessionStore
+	googleClient *http.Client
 }
 
 func main() {
@@ -25,7 +26,7 @@ func main() {
 	a := &app{
 		cfg:      cfg,
 		sessions: NewSessionStore(),
-		tokenClient: &http.Client{
+		googleClient: &http.Client{
 			Timeout: 10 * time.Second,
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse
@@ -126,9 +127,20 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Google とのトークン交換に失敗しました", http.StatusBadGateway)
 		return
 	}
-	if _, err := decodeIDToken(tokens.IDToken); err != nil {
+	decoded, err := decodeIDToken(tokens.IDToken)
+	if err != nil {
 		log.Printf("   [callback] ID token decode failed: %v", err)
 		http.Error(w, "Google の ID トークンを読み取れませんでした", http.StatusBadGateway)
+		return
+	}
+	var kid string
+	if err := json.Unmarshal(decoded.Header["kid"], &kid); err != nil || kid == "" {
+		http.Error(w, "Google の ID トークンに鍵 ID がありません", http.StatusBadGateway)
+		return
+	}
+	if _, err := a.fetchGooglePublicKey(r.Context(), kid); err != nil {
+		log.Printf("   [callback] Google public key lookup failed: %v", err)
+		http.Error(w, "Google の公開鍵を取得できませんでした", http.StatusBadGateway)
 		return
 	}
 
