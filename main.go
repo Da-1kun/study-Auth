@@ -41,16 +41,19 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 // handleLogin はログインフローの開始点。
 // ブラウザごとに新しいセッションを作り、state を生成して保存する。
-// 現時点では確認用に state を本文に出すだけ。Step 3 で /authorize への 302 に置き換える。
+// 現時点では確認用に state と code_challenge を本文に出す。Step 3 で /authorize への 302 に置き換える。
 func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// 既存セッションがあっても作り直す（前回の途中状態を引きずらない）
 	sess := a.sessions.Create(w)
 	sess.State = randomToken(32)
+	// 32 バイトの乱数をパディングなしの base64url にすると 43 文字になる。
+	sess.CodeVerifier = randomToken(32)
 
 	log.Printf("   [login] session=%s state=%s", sess.ID, sess.State)
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintf(w, "state=%s\n", sess.State)
+	fmt.Fprintf(w, "code_challenge=%s\n", codeChallenge(sess.CodeVerifier))
 }
 
 // handleCallback は Google からリダイレクトで戻ってくる先。

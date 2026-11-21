@@ -132,9 +132,9 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 
 ### Step 2: PKCE（認可コード横取り対策）
 
-- [ ] `code_verifier`（43〜128 文字の乱数）を生成してセッションに保存する
-- [ ] `code_challenge = BASE64URL(SHA256(code_verifier))` を計算する（パディング無し）
-- [ ] RFC 7636 Appendix B のテストベクタで単体テストを書く
+- [x] `code_verifier`（43〜128 文字の乱数）を生成してセッションに保存する
+- [x] `code_challenge = BASE64URL(SHA256(code_verifier))` を計算する（パディング無し）
+- [x] RFC 7636 Appendix B のテストベクタで単体テストを書く
   - verifier `dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk`
   - challenge `E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM`
 

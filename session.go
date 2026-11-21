@@ -11,7 +11,7 @@ import (
 const sessionCookieName = "sid"
 
 // Session は 1 ブラウザ分のサーバ側状態。
-// 以降のステップでフィールドを足していく（State, Nonce, CodeVerifier, ユーザー情報など）。
+// 以降のステップで Nonce やユーザー情報などのフィールドを足していく。
 type Session struct {
 	ID        string
 	CreatedAt time.Time
@@ -20,6 +20,9 @@ type Session struct {
 	// 「この /callback リクエストは、このブラウザが始めたログインフローの続きである」ことを
 	// 保証する（ログイン CSRF 対策）。照合したら空にして使い捨てにする。
 	State string
+
+	// CodeVerifier は PKCE の認可コード交換で使う、ログインごとの乱数。
+	CodeVerifier string
 }
 
 // SessionStore はメモリ上のセッション置き場。再起動で消える（学習用途なので割り切る）。
