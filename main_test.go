@@ -3,8 +3,66 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
+
+func TestHandleCallbackAuthorizationError(t *testing.T) {
+	const sessionState = "login-state"
+	tests := []struct {
+		name      string
+		query     url.Values
+		wantCode  int
+		wantBody  string
+		wantState string
+	}{
+		{
+			name:     "consent denied",
+			query:    url.Values{"state": {sessionState}, "error": {"access_denied"}},
+			wantCode: http.StatusBadRequest,
+			wantBody: "Google の認可に失敗しました (access_denied)\n",
+		},
+		{
+			name:      "error with mismatched state",
+			query:     url.Values{"state": {"unexpected"}, "error": {"access_denied"}},
+			wantCode:  http.StatusBadRequest,
+			wantBody:  "state が一致しません\n",
+			wantState: sessionState,
+		},
+		{
+			name:     "successful authorization",
+			query:    url.Values{"state": {sessionState}, "code": {"authorization-code"}},
+			wantCode: http.StatusOK,
+			wantBody: "state OK\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &app{sessions: NewSessionStore()}
+			login := httptest.NewRecorder()
+			sess := a.sessions.Create(login)
+			sess.State = sessionState
+
+			req := httptest.NewRequest(http.MethodGet, "/callback?"+tt.query.Encode(), nil)
+			for _, cookie := range login.Result().Cookies() {
+				req.AddCookie(cookie)
+			}
+			rec := httptest.NewRecorder()
+			a.handleCallback(rec, req)
+
+			if rec.Code != tt.wantCode {
+				t.Errorf("status = %d, want %d", rec.Code, tt.wantCode)
+			}
+			if got := rec.Body.String(); got != tt.wantBody {
+				t.Errorf("body = %q, want %q", got, tt.wantBody)
+			}
+			if sess.State != tt.wantState {
+				t.Errorf("session state = %q, want %q", sess.State, tt.wantState)
+			}
+		})
+	}
+}
 
 func TestHandleLoginRedirect(t *testing.T) {
 	sessionQuery := map[string]func(*Session) string{

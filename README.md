@@ -154,7 +154,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 
 ### Step 4: /callback と /token（認可コード → トークン交換）
 
-- [ ] `error` パラメータが来た場合の表示
+- [x] `error` パラメータが来た場合の表示（state の照合後）
 - [x] state 照合（Step 1）
 - [ ] `http.Client` で `/token` に `application/x-www-form-urlencoded` で POST
   - `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `client_secret`, `code_verifier`

@@ -66,7 +66,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCallback は Google からリダイレクトで戻ってくる先。
-// 現時点では state の照合だけを行う。Step 4 以降で code をトークンに交換する処理を足す。
+// state を照合し、Google が返した認可エラーがあれば表示する。
 func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -95,6 +95,11 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	//    同じ URL を再度開かれても（リプレイ）、もう一致しないようにする。
 	sess.State = ""
 	log.Printf("   [callback] state OK (session=%s)", sess.ID)
+
+	if authError := q.Get("error"); authError != "" {
+		http.Error(w, fmt.Sprintf("Google の認可に失敗しました (%s)", authError), http.StatusBadRequest)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintln(w, "state OK")
