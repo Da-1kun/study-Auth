@@ -4,10 +4,28 @@
 Go で OAuth ライブラリを使わずに作り、OAuth 2.0 (Authorization Code Flow + PKCE) と OIDC の各ステップを
 ブラウザの Network タブとサーバーログで確認する。
 
+## ローカルで動かす
+
+`state` の動作確認には `.env.example` のダミー値を使える。
+
+Go 1.26.2 以上で、リポジトリのルートから実行する。
+
+```sh
+cp -n .env.example .env
+make run
+```
+
+1. ブラウザで `http://localhost:8080` を開き、「Google でログイン」をクリックする。
+2. `/login` の本文に表示された `state=...` をコピーする。開発者ツールの Network タブでは、レスポンスの `Set-Cookie` に `sid`、`HttpOnly`、`SameSite=Lax` が含まれることを確認できる。
+3. 同じブラウザで `http://localhost:8080/callback?state=...` を開く。`...` をコピーした値に置き換えると、`200 OK` と本文の `state OK` が返る。
+4. 同じ URL を再読み込みすると、使用済みの state は `400 Bad Request` で拒否される。新しい `/login` で発行した state を別の値に変えた場合や、`sid` を持たないブラウザでアクセスした場合も `400` が返る。
+
+`make test` は `go test ./...` を実行する。現時点ではテストファイルがないため、ビルドの確認に使う。
+
 ## 最終的なアウトプット（全体像）
 
 ブラウザ・自作アプリ・Google の 3 者間で流れる通信の全体図。矢印の `[Step N]` が README 下部のステップに対応する。
-今どこを作っているかはこの図で確認する。
+以下の通信図と観察項目は Step 6 まで実装した時点のもの。
 
 ```mermaid
 sequenceDiagram
@@ -91,7 +109,7 @@ sequenceDiagram
 
 ### Step 0: 準備
 
-Go 1.26.2 以上が必要（`go.mod` を参照）。macOS（arm64）の Go 1.27.4 で `go test ./...` を実行し、ビルドが通ることを確認済み。テストファイルはまだない。
+Google へのリダイレクトを試す段階で、以下の設定を行う。`REDIRECT_URI` は Google 側に登録した URI と完全に一致させる。
 
 - [ ] Google Cloud Console で OAuth 同意画面を設定（外部 / テストユーザーに自分を追加）
 - [ ] 「OAuth 2.0 クライアント ID（ウェブ アプリケーション）」を作成
@@ -106,6 +124,8 @@ Go 1.26.2 以上が必要（`go.mod` を参照）。macOS（arm64）の Go 1.27.
 - [x] Cookie（`HttpOnly`, `SameSite=Lax`）+ サーバ側メモリでセッションを持つ
 - [x] `/login` で `crypto/rand` から state を生成してセッションに保存する
 - [x] `/callback` で返ってきた `state` とセッション内の値を照合する（定数時間比較、使い捨て）
+  - [x] 一致する state とセッション Cookie で `200 OK` を返すことを確認
+  - [x] 使用済みの state、不一致の state、セッション Cookie なしの各ケースで `400 Bad Request` を返すことを確認
 
 理解したいこと: state が無いと何が起きるか（ログイン CSRF）。
 `SameSite=Lax` でも Google からの戻り（トップレベル GET）で Cookie が送られるのはなぜか。
