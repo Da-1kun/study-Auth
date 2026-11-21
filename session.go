@@ -11,7 +11,6 @@ import (
 const sessionCookieName = "sid"
 
 // Session は 1 ブラウザ分のサーバ側状態。
-// 以降のステップで Nonce やユーザー情報などのフィールドを足していく。
 type Session struct {
 	ID        string
 	CreatedAt time.Time
@@ -23,6 +22,9 @@ type Session struct {
 
 	// CodeVerifier は PKCE の認可コード交換で使う、ログインごとの乱数。
 	CodeVerifier string
+
+	// Nonce は認可リクエストに送り、後で ID トークンの nonce と照合する乱数。
+	Nonce string
 }
 
 // SessionStore はメモリ上のセッション置き場。再起動で消える（学習用途なので割り切る）。

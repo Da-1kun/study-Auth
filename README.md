@@ -142,7 +142,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 
 ### Step 3: /authorize URL の自前生成
 
-- [ ] `url.Values` で以下を組み立てて 302 リダイレクトする
+- [x] `url.Values` で以下を組み立てて 302 リダイレクトする
   - `client_id`, `redirect_uri`, `response_type=code`
   - `scope=openid email profile`
   - `state`, `nonce`
