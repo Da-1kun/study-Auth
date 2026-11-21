@@ -156,7 +156,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 
 - [x] `error` パラメータが来た場合の表示（state の照合後）
 - [x] state 照合（Step 1）
-- [ ] `http.Client` で `/token` に `application/x-www-form-urlencoded` で POST
+- [x] `http.Client` で `/token` に `application/x-www-form-urlencoded` で POST
   - `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `client_secret`, `code_verifier`
 - [ ] レスポンス JSON（`access_token`, `id_token`, `expires_in`, `scope`, `token_type`）を構造体に受ける
 - [ ] 送信リクエストと受信レスポンスをログに全文ダンプする（`httputil.DumpRequestOut` / `DumpResponse`）

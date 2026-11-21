@@ -1,13 +1,22 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
+	"strings"
 	"testing"
 )
 
-func TestHandleCallbackAuthorizationError(t *testing.T) {
+type tokenRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestHandleCallback(t *testing.T) {
 	const sessionState = "login-state"
 	tests := []struct {
 		name      string
@@ -15,6 +24,8 @@ func TestHandleCallbackAuthorizationError(t *testing.T) {
 		wantCode  int
 		wantBody  string
 		wantState string
+		wantForm  url.Values
+		tokenCode int
 	}{
 		{
 			name:     "consent denied",
@@ -33,16 +44,53 @@ func TestHandleCallbackAuthorizationError(t *testing.T) {
 			name:     "successful authorization",
 			query:    url.Values{"state": {sessionState}, "code": {"authorization-code"}},
 			wantCode: http.StatusOK,
-			wantBody: "state OK\n",
+			wantBody: "state OK, token exchange OK\n",
+			wantForm: url.Values{
+				"grant_type":    {"authorization_code"},
+				"code":          {"authorization-code"},
+				"redirect_uri":  {"http://localhost:8080/callback"},
+				"client_id":     {"test-client"},
+				"client_secret": {"test-secret"},
+				"code_verifier": {"test-verifier"},
+			},
+			tokenCode: http.StatusOK,
+		},
+		{
+			name:     "missing authorization code",
+			query:    url.Values{"state": {sessionState}},
+			wantCode: http.StatusBadRequest,
+			wantBody: "認可コードがありません\n",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := &app{sessions: NewSessionStore()}
+			var sentForm url.Values
+			a := &app{
+				cfg: Config{
+					ClientID: "test-client", ClientSecret: "test-secret",
+					RedirectURI: "http://localhost:8080/callback",
+				},
+				sessions: NewSessionStore(),
+				tokenClient: &http.Client{Transport: tokenRoundTripper(func(req *http.Request) (*http.Response, error) {
+					defer req.Body.Close()
+					if req.Method != http.MethodPost || req.URL.String() != "https://oauth2.googleapis.com/token" {
+						t.Errorf("unexpected token request: %s %s", req.Method, req.URL)
+					}
+					if got := req.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+						t.Errorf("unexpected token request content type: %q", got)
+					}
+					if err := req.ParseForm(); err != nil {
+						t.Fatal(err)
+					}
+					sentForm = req.PostForm
+					return &http.Response{StatusCode: tt.tokenCode, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+				})},
+			}
 			login := httptest.NewRecorder()
 			sess := a.sessions.Create(login)
 			sess.State = sessionState
+			sess.CodeVerifier = "test-verifier"
 
 			req := httptest.NewRequest(http.MethodGet, "/callback?"+tt.query.Encode(), nil)
 			for _, cookie := range login.Result().Cookies() {
@@ -59,6 +107,9 @@ func TestHandleCallbackAuthorizationError(t *testing.T) {
 			}
 			if sess.State != tt.wantState {
 				t.Errorf("session state = %q, want %q", sess.State, tt.wantState)
+			}
+			if !reflect.DeepEqual(sentForm, tt.wantForm) {
+				t.Errorf("token request form = %v, want %v", sentForm, tt.wantForm)
 			}
 		})
 	}

@@ -15,6 +15,8 @@ type Session struct {
 	ID        string
 	CreatedAt time.Time
 
+	stateMu sync.Mutex
+
 	// State は /authorize に付けて送り、/callback で返ってきた値と照合する一回限りの乱数。
 	// 「この /callback リクエストは、このブラウザが始めたログインフローの続きである」ことを
 	// 保証する（ログイン CSRF 対策）。照合したら空にして使い捨てにする。

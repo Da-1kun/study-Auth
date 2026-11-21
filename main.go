@@ -6,13 +6,15 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 const googleAuthorizeURL = "https://accounts.google.com/o/oauth2/v2/auth"
 
 type app struct {
-	cfg      Config
-	sessions *SessionStore
+	cfg         Config
+	sessions    *SessionStore
+	tokenClient *http.Client
 }
 
 func main() {
@@ -20,7 +22,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &app{cfg: cfg, sessions: NewSessionStore()}
+	a := &app{
+		cfg:      cfg,
+		sessions: NewSessionStore(),
+		tokenClient: &http.Client{
+			Timeout: 10 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", a.handleIndex)
@@ -66,7 +77,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCallback は Google からリダイレクトで戻ってくる先。
-// state を照合し、Google が返した認可エラーがあれば表示する。
+// state を照合し、認可に成功していればコードをトークンに交換する。
 func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -84,8 +95,10 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	//    ConstantTimeCompare を使うのは、比較にかかる時間から一致した文字数を推測される
 	//    タイミング攻撃を避けるため（== は先頭から比べて不一致で即終了する）。
 	got := q.Get("state")
+	sess.stateMu.Lock()
 	want := sess.State
 	if want == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+		sess.stateMu.Unlock()
 		log.Printf("   [callback] state mismatch: got=%q want=%q", got, want)
 		http.Error(w, "state が一致しません", http.StatusBadRequest)
 		return
@@ -94,6 +107,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// 3. 照合に成功した state は使い捨てにする。
 	//    同じ URL を再度開かれても（リプレイ）、もう一致しないようにする。
 	sess.State = ""
+	sess.stateMu.Unlock()
 	log.Printf("   [callback] state OK (session=%s)", sess.ID)
 
 	if authError := q.Get("error"); authError != "" {
@@ -101,6 +115,17 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	code := q.Get("code")
+	if code == "" {
+		http.Error(w, "認可コードがありません", http.StatusBadRequest)
+		return
+	}
+	if err := a.exchangeCode(r.Context(), code, sess.CodeVerifier); err != nil {
+		log.Printf("   [callback] token exchange failed: %v", err)
+		http.Error(w, "Google とのトークン交換に失敗しました", http.StatusBadGateway)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintln(w, "state OK")
+	fmt.Fprintln(w, "state OK, token exchange OK")
 }
