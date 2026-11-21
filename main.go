@@ -120,9 +120,15 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "認可コードがありません", http.StatusBadRequest)
 		return
 	}
-	if _, err := a.exchangeCode(r.Context(), code, sess.CodeVerifier); err != nil {
+	tokens, err := a.exchangeCode(r.Context(), code, sess.CodeVerifier)
+	if err != nil {
 		log.Printf("   [callback] token exchange failed: %v", err)
 		http.Error(w, "Google とのトークン交換に失敗しました", http.StatusBadGateway)
+		return
+	}
+	if _, err := decodeIDToken(tokens.IDToken); err != nil {
+		log.Printf("   [callback] ID token decode failed: %v", err)
+		http.Error(w, "Google の ID トークンを読み取れませんでした", http.StatusBadGateway)
 		return
 	}
 

@@ -26,6 +26,7 @@ func TestHandleCallback(t *testing.T) {
 		wantState string
 		wantForm  url.Values
 		tokenCode int
+		tokenBody string
 	}{
 		{
 			name:     "consent denied",
@@ -54,6 +55,7 @@ func TestHandleCallback(t *testing.T) {
 				"code_verifier": {"test-verifier"},
 			},
 			tokenCode: http.StatusOK,
+			tokenBody: `{"id_token":"eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2ln"}`,
 		},
 		{
 			name:     "missing authorization code",
@@ -84,7 +86,7 @@ func TestHandleCallback(t *testing.T) {
 						t.Fatal(err)
 					}
 					sentForm = req.PostForm
-					return &http.Response{StatusCode: tt.tokenCode, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+					return &http.Response{StatusCode: tt.tokenCode, Body: io.NopCloser(strings.NewReader(tt.tokenBody))}, nil
 				})},
 			}
 			login := httptest.NewRecorder()
