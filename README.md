@@ -91,19 +91,21 @@ sequenceDiagram
 
 ### Step 0: 準備
 
+Go 1.26.2 以上が必要（`go.mod` を参照）。macOS（arm64）の Go 1.27.4 で `go test ./...` を実行し、ビルドが通ることを確認済み。テストファイルはまだない。
+
 - [ ] Google Cloud Console で OAuth 同意画面を設定（外部 / テストユーザーに自分を追加）
 - [ ] 「OAuth 2.0 クライアント ID（ウェブ アプリケーション）」を作成
 - [ ] 承認済みのリダイレクト URI に `http://localhost:8080/callback` を登録
 - [ ] `.env` に `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `REDIRECT_URI` を置く（`.env` は commit しない）
-- [ ] `go mod init` して `net/http` だけで `/` を返す最小サーバを起動する
+- [x] `go mod init` して `net/http` だけで `/` を返す最小サーバを起動する
 
 観察: Discovery ドキュメントを開き、上の表の URL が載っていることを確認する。
 
 ### Step 1: セッションと state（CSRF 対策）
 
-- [ ] Cookie（`HttpOnly`, `SameSite=Lax`）+ サーバ側メモリでセッションを持つ
-- [ ] `/login` で `crypto/rand` から state を生成してセッションに保存する
-- [ ] `/callback` で返ってきた `state` とセッション内の値を照合する（定数時間比較、使い捨て）
+- [x] Cookie（`HttpOnly`, `SameSite=Lax`）+ サーバ側メモリでセッションを持つ
+- [x] `/login` で `crypto/rand` から state を生成してセッションに保存する
+- [x] `/callback` で返ってきた `state` とセッション内の値を照合する（定数時間比較、使い捨て）
 
 理解したいこと: state が無いと何が起きるか（ログイン CSRF）。
 `SameSite=Lax` でも Google からの戻り（トップレベル GET）で Cookie が送られるのはなぜか。
@@ -133,7 +135,7 @@ sequenceDiagram
 ### Step 4: /callback と /token（認可コード → トークン交換）
 
 - [ ] `error` パラメータが来た場合の表示
-- [ ] state 照合（Step 1）
+- [x] state 照合（Step 1）
 - [ ] `http.Client` で `/token` に `application/x-www-form-urlencoded` で POST
   - `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `client_secret`, `code_verifier`
 - [ ] レスポンス JSON（`access_token`, `id_token`, `expires_in`, `scope`, `token_type`）を構造体に受ける
