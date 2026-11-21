@@ -120,7 +120,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "認可コードがありません", http.StatusBadRequest)
 		return
 	}
-	if err := a.exchangeCode(r.Context(), code, sess.CodeVerifier); err != nil {
+	if _, err := a.exchangeCode(r.Context(), code, sess.CodeVerifier); err != nil {
 		log.Printf("   [callback] token exchange failed: %v", err)
 		http.Error(w, "Google とのトークン交換に失敗しました", http.StatusBadGateway)
 		return

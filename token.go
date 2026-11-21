@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,7 +11,15 @@ import (
 
 const googleTokenURL = "https://oauth2.googleapis.com/token"
 
-func (a *app) exchangeCode(ctx context.Context, code, verifier string) error {
+type tokenResponse struct {
+	AccessToken string `json:"access_token"`
+	IDToken     string `json:"id_token"`
+	ExpiresIn   int    `json:"expires_in"`
+	Scope       string `json:"scope"`
+	TokenType   string `json:"token_type"`
+}
+
+func (a *app) exchangeCode(ctx context.Context, code, verifier string) (tokenResponse, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -21,17 +30,22 @@ func (a *app) exchangeCode(ctx context.Context, code, verifier string) error {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, googleTokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return err
+		return tokenResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	res, err := a.tokenClient.Do(req)
 	if err != nil {
-		return err
+		return tokenResponse{}, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("Google token endpoint returned HTTP %d", res.StatusCode)
+		return tokenResponse{}, fmt.Errorf("Google token endpoint returned HTTP %d", res.StatusCode)
 	}
-	return nil
+
+	var tokens tokenResponse
+	if err := json.NewDecoder(res.Body).Decode(&tokens); err != nil {
+		return tokenResponse{}, fmt.Errorf("decode Google token response: %w", err)
+	}
+	return tokens, nil
 }

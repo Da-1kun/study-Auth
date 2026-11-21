@@ -158,7 +158,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 - [x] state 照合（Step 1）
 - [x] `http.Client` で `/token` に `application/x-www-form-urlencoded` で POST
   - `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `client_secret`, `code_verifier`
-- [ ] レスポンス JSON（`access_token`, `id_token`, `expires_in`, `scope`, `token_type`）を構造体に受ける
+- [x] レスポンス JSON（`access_token`, `id_token`, `expires_in`, `scope`, `token_type`）を構造体に受ける
 - [ ] 送信リクエストと受信レスポンスをログに全文ダンプする（`httputil.DumpRequestOut` / `DumpResponse`）
 
 観察（サーバーログ）: ブラウザからは見えないサーバ間通信。Google が web クライアントでは PKCE ありでも
