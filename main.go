@@ -138,9 +138,15 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Google の ID トークンに鍵 ID がありません", http.StatusBadGateway)
 		return
 	}
-	if _, err := a.fetchGooglePublicKey(r.Context(), kid); err != nil {
+	key, err := a.fetchGooglePublicKey(r.Context(), kid)
+	if err != nil {
 		log.Printf("   [callback] Google public key lookup failed: %v", err)
 		http.Error(w, "Google の公開鍵を取得できませんでした", http.StatusBadGateway)
+		return
+	}
+	if err := decoded.verifySignature(key); err != nil {
+		log.Printf("   [callback] ID token signature verification failed: %v", err)
+		http.Error(w, "Google の ID トークンの署名を検証できませんでした", http.StatusBadGateway)
 		return
 	}
 

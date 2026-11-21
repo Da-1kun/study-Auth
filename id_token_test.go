@@ -20,8 +20,10 @@ func TestDecodeIDToken(t *testing.T) {
 			name:  "decodes header and payload",
 			token: header + "." + payload + ".c2ln",
 			want: decodedIDToken{
-				Header:  map[string]json.RawMessage{"alg": json.RawMessage(`"RS256"`)},
-				Payload: map[string]json.RawMessage{"sub": json.RawMessage(`"123"`)},
+				Header:           map[string]json.RawMessage{"alg": json.RawMessage(`"RS256"`)},
+				Payload:          map[string]json.RawMessage{"sub": json.RawMessage(`"123"`)},
+				signingInput:     header + "." + payload,
+				encodedSignature: "c2ln",
 			},
 		},
 		{name: "missing segment", token: header + "." + payload, wantErr: true},

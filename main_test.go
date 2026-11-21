@@ -1,7 +1,14 @@
 package main
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,6 +25,21 @@ func (f tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 
 func TestHandleCallback(t *testing.T) {
 	const sessionState = "login-state"
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encode := base64.RawURLEncoding.EncodeToString
+	signingInput := encode([]byte(`{"alg":"RS256","kid":"test-key"}`)) + "." + encode([]byte(`{"sub":"123"}`))
+	digest := sha256.Sum256([]byte(signingInput))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenBody := fmt.Sprintf(`{"id_token":%q}`, signingInput+"."+encode(signature))
+	jwks := fmt.Sprintf(`{"keys":[{"kid":"test-key","kty":"RSA","n":%q,"e":%q}]}`,
+		encode(key.N.Bytes()), encode(big.NewInt(int64(key.E)).Bytes()))
+
 	tests := []struct {
 		name      string
 		query     url.Values
@@ -55,7 +77,7 @@ func TestHandleCallback(t *testing.T) {
 				"code_verifier": {"test-verifier"},
 			},
 			tokenCode: http.StatusOK,
-			tokenBody: `{"id_token":"eyJhbGciOiJSUzI1NiIsImtpZCI6InRlc3Qta2V5In0.eyJzdWIiOiIxMjMifQ.c2ln"}`,
+			tokenBody: tokenBody,
 		},
 		{
 			name:     "missing authorization code",
@@ -76,7 +98,6 @@ func TestHandleCallback(t *testing.T) {
 				sessions: NewSessionStore(),
 				googleClient: &http.Client{Transport: tokenRoundTripper(func(req *http.Request) (*http.Response, error) {
 					if req.Method == http.MethodGet && req.URL.String() == "https://www.googleapis.com/oauth2/v3/certs" {
-						const jwks = `{"keys":[{"kid":"test-key","kty":"RSA","n":"DQ","e":"AQAB"}]}`
 						return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(jwks))}, nil
 					}
 					defer req.Body.Close()
