@@ -40,8 +40,8 @@ sequenceDiagram
 
     U->>B: 「Google でログイン」をクリック
     B->>A: GET /login
-    Note over A: [Step 1] state 生成 → セッション保存<br/>[Step 2] code_verifier 生成 → セッション保存<br/>code_challenge = BASE64URL(SHA256(verifier))<br/>[Step 3] nonce 生成、/authorize URL を組み立て
-    A-->>B: 302 Location: /authorize?client_id&redirect_uri&response_type=code<br/>&scope=openid email profile&state&nonce<br/>&code_challenge&code_challenge_method=S256<br/>Set-Cookie: sid=...
+    Note over A: [Step 1] state 生成 → セッション保存<br/>[Step 2] code_verifier 生成 → セッション保存<br/>code_challenge = BASE64URL(SHA256(verifier))<br/>[Step 3] nonce 生成、Google の認可 URL を組み立て
+    A-->>B: 302 Location: https://accounts.google.com/o/oauth2/v2/auth?client_id&redirect_uri&response_type=code<br/>&scope=openid email profile&state&nonce<br/>&code_challenge&code_challenge_method=S256<br/>Set-Cookie: sid=...
 
     B->>G: GET /o/oauth2/v2/auth?...
     G-->>B: ログイン画面 / 同意画面
@@ -86,7 +86,7 @@ sequenceDiagram
 - JWT デコードは自前（署名検証は crypto/rsa 等のライブラリ利用可）
 - PKCE を自前実装
 - state を自前実装
-- `/authorize` の URL を自前生成
+- Google の認可 URL（`https://accounts.google.com/o/oauth2/v2/auth`）を自前生成
 - `/token` は `http.Client` で直接 POST
 - userinfo を `Authorization: Bearer` 付きで直接呼ぶ
 - ブラウザの Network タブとサーバーログで、各リクエスト・レスポンスを確認する
@@ -138,9 +138,9 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
   - verifier `dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk`
   - challenge `E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM`
 
-理解したいこと: challenge は /authorize に、verifier は /token に送る。なぜ分けると安全になるのか。
+理解したいことは、challenge を Google の認可エンドポイント（`/o/oauth2/v2/auth`）に、verifier をトークンエンドポイント（`/token`）に分けて送ると、なぜ安全になるのか。
 
-### Step 3: /authorize URL の自前生成
+### Step 3: Google の認可 URL（`/o/oauth2/v2/auth`）の自前生成
 
 - [x] `url.Values` で以下を組み立てて 302 リダイレクトする
   - `client_id`, `redirect_uri`, `response_type=code`
