@@ -30,7 +30,11 @@ func logRequests(next http.Handler) http.Handler {
 
 		line := "<- " + r.Method + " " + r.URL.Path
 		if r.URL.RawQuery != "" {
-			line += "?" + r.URL.RawQuery
+			query := r.URL.Query()
+			if query.Has("code") {
+				query.Set("code", "[redacted]")
+			}
+			line += "?" + query.Encode()
 		}
 		log.Printf("%s -> %d (%s)", line, rec.status, time.Since(start).Round(time.Millisecond))
 		if loc := rec.Header().Get("Location"); loc != "" {

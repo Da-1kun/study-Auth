@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 )
@@ -34,11 +36,24 @@ func (a *app) exchangeCode(ctx context.Context, code, verifier string) (tokenRes
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
+	// リクエスト本文はエンコード済みなので、以降の form の変更は送信内容に影響しない。
+	for _, key := range []string{"code", "client_secret", "code_verifier"} {
+		form.Set(key, "[redacted]")
+	}
+	if dump, err := httputil.DumpRequestOut(req, false); err == nil {
+		log.Printf("   [token] request\n%s%s", dump, form.Encode())
+	}
+
 	res, err := a.tokenClient.Do(req)
 	if err != nil {
 		return tokenResponse{}, err
 	}
 	defer res.Body.Close()
+	logResponse := *res
+	logResponse.Header = http.Header{"Content-Type": res.Header.Values("Content-Type")}
+	if dump, err := httputil.DumpResponse(&logResponse, false); err == nil {
+		log.Printf("   [token] response\n%s", dump)
+	}
 	if res.StatusCode != http.StatusOK {
 		return tokenResponse{}, fmt.Errorf("Google token endpoint returned HTTP %d", res.StatusCode)
 	}
@@ -47,5 +62,14 @@ func (a *app) exchangeCode(ctx context.Context, code, verifier string) (tokenRes
 	if err := json.NewDecoder(res.Body).Decode(&tokens); err != nil {
 		return tokenResponse{}, fmt.Errorf("decode Google token response: %w", err)
 	}
+	loggedTokens := tokenResponse{
+		AccessToken: "[redacted]",
+		IDToken:     "[redacted]",
+		ExpiresIn:   tokens.ExpiresIn,
+		Scope:       tokens.Scope,
+		TokenType:   tokens.TokenType,
+	}
+	body, _ := json.Marshal(loggedTokens)
+	log.Printf("   [token] response JSON: %s", body)
 	return tokens, nil
 }

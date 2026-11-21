@@ -159,7 +159,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 - [x] `http.Client` で `/token` に `application/x-www-form-urlencoded` で POST
   - `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `client_secret`, `code_verifier`
 - [x] レスポンス JSON（`access_token`, `id_token`, `expires_in`, `scope`, `token_type`）を構造体に受ける
-- [ ] 送信リクエストと受信レスポンスをログに全文ダンプする（`httputil.DumpRequestOut` / `DumpResponse`）
+- [x] 送信リクエストと受信レスポンスをログで観察する（`httputil.DumpRequestOut` / `DumpResponse`）。フォームと成功時の JSON は認可コード、シークレット、verifier、トークンを伏せて表示する。
 
 観察（サーバーログ）: ブラウザからは見えないサーバ間通信。Google が web クライアントでは PKCE ありでも
 `client_secret` を要求することを確認する。
