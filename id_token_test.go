@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -27,6 +28,26 @@ func TestDecodeIDToken(t *testing.T) {
 		{name: "invalid base64url", token: "!" + "." + payload + ".c2ln", wantErr: true},
 		{name: "invalid JSON", token: header + ".ew.c2ln", wantErr: true},
 		{name: "payload is not an object", token: header + ".bnVsbA.c2ln", wantErr: true},
+		{
+			name:    "rejects none algorithm",
+			token:   base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`)) + "." + payload + ".c2ln",
+			wantErr: true,
+		},
+		{
+			name:    "rejects another algorithm",
+			token:   base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256"}`)) + "." + payload + ".c2ln",
+			wantErr: true,
+		},
+		{
+			name:    "rejects missing algorithm",
+			token:   "e30." + payload + ".c2ln",
+			wantErr: true,
+		},
+		{
+			name:    "rejects non-string algorithm",
+			token:   base64.RawURLEncoding.EncodeToString([]byte(`{"alg":256}`)) + "." + payload + ".c2ln",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

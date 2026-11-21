@@ -12,7 +12,7 @@ type decodedIDToken struct {
 	Payload map[string]json.RawMessage
 }
 
-// decodeIDToken は JWT の内容を読み取る。署名とクレームの検証は後続の処理で行う。
+// decodeIDToken は RS256 の JWT の内容を読み取る。署名とクレームの検証は後続の処理で行う。
 func decodeIDToken(raw string) (decodedIDToken, error) {
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
@@ -23,6 +23,11 @@ func decodeIDToken(raw string) (decodedIDToken, error) {
 	if err != nil {
 		return decodedIDToken{}, fmt.Errorf("decode ID token header: %w", err)
 	}
+	var alg string
+	if err := json.Unmarshal(header["alg"], &alg); err != nil || alg != "RS256" {
+		return decodedIDToken{}, fmt.Errorf("ID token header alg must be RS256")
+	}
+
 	payload, err := decodeJWTObject(parts[1])
 	if err != nil {
 		return decodedIDToken{}, fmt.Errorf("decode ID token payload: %w", err)
