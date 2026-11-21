@@ -170,7 +170,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 - [x] `alg` が `RS256` 以外なら拒否する（`alg=none` 対策）
 - [x] JWKS を取得し、header の `kid` に一致する鍵の `n`, `e` から `rsa.PublicKey` を組み立てる
 - [x] `SHA256("header.payload")` に対して `rsa.VerifyPKCS1v15` で署名検証する
-- [ ] クレーム検証: `iss`, `aud`(= client_id), `exp`, `nonce`(= Step 3 で送った値)
+- [x] クレーム検証: `iss`, `aud`(= client_id), `exp`, `nonce`(= Step 3 で送った値)
 - [ ] 改ざんしたトークン・期限切れ・aud 不一致が弾かれる単体テストを書く
 
 理解したいこと: 「デコードできる」と「検証済み」は別物。nonce が防ぐ攻撃は何か。

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type decodedIDToken struct {
@@ -18,7 +19,7 @@ type decodedIDToken struct {
 	encodedSignature string
 }
 
-// decodeIDToken は RS256 の JWT の内容を読み取る。署名とクレームの検証は後続の処理で行う。
+// decodeIDToken は RS256 の JWT の内容を読み取る。呼び出し元で署名とクレームを検証する。
 func decodeIDToken(raw string) (decodedIDToken, error) {
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
@@ -53,6 +54,33 @@ func (token decodedIDToken) verifySignature(key *rsa.PublicKey) error {
 	}
 	digest := sha256.Sum256([]byte(token.signingInput))
 	return rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], signature)
+}
+
+func (token decodedIDToken) verifyClaims(clientID, expectedNonce string, now time.Time) error {
+	var issuer string
+	if err := json.Unmarshal(token.Payload["iss"], &issuer); err != nil ||
+		(issuer != "https://accounts.google.com" && issuer != "accounts.google.com") {
+		return fmt.Errorf("invalid ID token issuer")
+	}
+
+	var audience string
+	if err := json.Unmarshal(token.Payload["aud"], &audience); err != nil ||
+		clientID == "" || audience != clientID {
+		return fmt.Errorf("invalid ID token audience")
+	}
+
+	var expiresAt int64
+	if err := json.Unmarshal(token.Payload["exp"], &expiresAt); err != nil ||
+		expiresAt <= now.Unix() {
+		return fmt.Errorf("ID token expiration is missing, invalid, or elapsed")
+	}
+
+	var nonce string
+	if err := json.Unmarshal(token.Payload["nonce"], &nonce); err != nil ||
+		expectedNonce == "" || nonce != expectedNonce {
+		return fmt.Errorf("invalid ID token nonce")
+	}
+	return nil
 }
 
 func decodeJWTObject(encoded string) (map[string]json.RawMessage, error) {

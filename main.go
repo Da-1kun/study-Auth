@@ -149,6 +149,11 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Google の ID トークンの署名を検証できませんでした", http.StatusBadGateway)
 		return
 	}
+	if err := decoded.verifyClaims(a.cfg.ClientID, sess.Nonce, time.Now()); err != nil {
+		log.Printf("   [callback] ID token claims verification failed: %v", err)
+		http.Error(w, "Google の ID トークンのクレームを検証できませんでした", http.StatusBadGateway)
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintln(w, "state OK, token exchange OK")

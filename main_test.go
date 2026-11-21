@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type tokenRoundTripper func(*http.Request) (*http.Response, error)
@@ -30,7 +31,8 @@ func TestHandleCallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	encode := base64.RawURLEncoding.EncodeToString
-	signingInput := encode([]byte(`{"alg":"RS256","kid":"test-key"}`)) + "." + encode([]byte(`{"sub":"123"}`))
+	payload := fmt.Sprintf(`{"iss":"https://accounts.google.com","aud":"test-client","exp":%d,"nonce":"test-nonce","sub":"123"}`, time.Now().Add(time.Hour).Unix())
+	signingInput := encode([]byte(`{"alg":"RS256","kid":"test-key"}`)) + "." + encode([]byte(payload))
 	digest := sha256.Sum256([]byte(signingInput))
 	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 	if err != nil {
@@ -118,6 +120,7 @@ func TestHandleCallback(t *testing.T) {
 			sess := a.sessions.Create(login)
 			sess.State = sessionState
 			sess.CodeVerifier = "test-verifier"
+			sess.Nonce = "test-nonce"
 
 			req := httptest.NewRequest(http.MethodGet, "/callback?"+tt.query.Encode(), nil)
 			for _, cookie := range login.Result().Cookies() {
