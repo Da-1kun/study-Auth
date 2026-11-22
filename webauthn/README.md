@@ -97,13 +97,15 @@ sequenceDiagram
 
 - [x] `crypto/rand` で 32 バイトの challenge を生成し、操作種別、対象アカウント、有効期限とともにサーバー側のセッションに保存する
 - [x] Cookie に `HttpOnly`、`SameSite=Lax` を付ける。Go サーバーが HTTPS リクエストを直接受けた場合は `Secure` も付ける
-- [ ] `finish` 側で対象セッションから有効な challenge を一度だけ取得できるようにする。取得と消費を同じロック内で行う
+- [x] `finish` 側で対象セッションから有効な challenge を一度だけ取得できるようにする。取得と消費を同じロック内で行う
 
 理解したいことは、署名を正しく検証できても、古いログイン応答の再送を拒むには毎回新しい challenge が必要な理由。
 
 この段階では `curl -i -X POST http://localhost:8081/register/options` で、JSON の `challenge` と `Set-Cookie` を確認できる。Cookie にはセッション ID が入り、challenge は登録操作と `demo` の user handle に紐づけてサーバー側メモリに 5 分間保存する。有効なセッションで再度発行すると、前の challenge を置き換える。
 
 ローカル HTTP のレスポンスでは `Set-Cookie` に `HttpOnly` と `SameSite=Lax` が付くことを確認する。
+
+`/register/options` が発行した Cookie を付けて `POST /register/finish` を呼ぶと、初回は challenge を消費して `204 No Content` を返す。同じ Cookie で再度呼ぶと `400 Bad Request` を返す。この段階の `204` は challenge の消費を示す。登録レスポンスの検証と公開鍵の保存は Step 3 で行う。
 
 ### Step 2 — 登録オプションとブラウザ API
 
