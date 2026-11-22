@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -24,58 +25,38 @@ func (f tokenRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return f(req)
 }
 
-func TestHandleCallback(t *testing.T) {
-	const sessionState = "login-state"
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	encode := base64.RawURLEncoding.EncodeToString
-	payload := fmt.Sprintf(`{"iss":"https://accounts.google.com","aud":"test-client","exp":%d,"nonce":"test-nonce","sub":"123"}`, time.Now().Add(time.Hour).Unix())
-	signingInput := encode([]byte(`{"alg":"RS256","kid":"test-key"}`)) + "." + encode([]byte(payload))
-	digest := sha256.Sum256([]byte(signingInput))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-	tokenBody := fmt.Sprintf(`{"access_token":"test-access-token","expires_in":3600,"id_token":%q}`, signingInput+"."+encode(signature))
-	tokenBodyWithRefresh := strings.TrimSuffix(tokenBody, "}") + `,"refresh_token":"new-refresh-token"}`
-	jwks := fmt.Sprintf(`{"keys":[{"kid":"test-key","kty":"RSA","n":%q,"e":%q}]}`,
-		encode(key.N.Bytes()), encode(big.NewInt(int64(key.E)).Bytes()))
+const callbackSessionState = "login-state"
 
-	type userInfoRequest struct {
-		method, endpoint, authorization string
-	}
-	wantUserInfo := userInfoRequest{"GET", "https://openidconnect.googleapis.com/v1/userinfo", "Bearer test-access-token"}
-	wantForm := url.Values{
-		"grant_type":    {"authorization_code"},
-		"code":          {"authorization-code"},
-		"redirect_uri":  {"http://localhost:8080/callback"},
-		"client_id":     {"test-client"},
-		"client_secret": {"test-secret"},
-		"code_verifier": {"test-verifier"},
-	}
-	tests := []struct {
-		userInfoBody    string
-		wantUserInfo    userInfoRequest
-		name            string
-		query           url.Values
-		wantCode        int
-		wantBody        string
-		wantLocation    string
-		wantState       string
-		wantSession     userInfo
-		savedRefresh    string
-		wantRefresh     string
-		wantForm        url.Values
-		wantRefreshForm url.Values
-		refreshBody     string
-		tokenCode       int
-		tokenBody       string
-	}{
+type userInfoRequest struct {
+	method, endpoint, authorization string
+}
+
+type callbackTestCase struct {
+	userInfoBody    string
+	wantUserInfo    userInfoRequest
+	name            string
+	query           url.Values
+	wantCode        int
+	wantBody        string
+	wantLocation    string
+	wantState       string
+	wantSession     userInfo
+	savedRefresh    string
+	wantRefresh     string
+	wantForm        url.Values
+	wantRefreshForm url.Values
+	refreshBody     string
+	refreshCode     int
+	refreshErr      error
+	tokenCode       int
+	tokenBody       string
+}
+
+func TestHandleCallbackValidation(t *testing.T) {
+	tests := []callbackTestCase{
 		{
 			name:     "consent denied",
-			query:    url.Values{"state": {sessionState}, "error": {"access_denied"}},
+			query:    url.Values{"state": {callbackSessionState}, "error": {"access_denied"}},
 			wantCode: http.StatusBadRequest,
 			wantBody: "Google の認可に失敗しました (access_denied)\n",
 		},
@@ -84,11 +65,27 @@ func TestHandleCallback(t *testing.T) {
 			query:     url.Values{"state": {"unexpected"}, "error": {"access_denied"}},
 			wantCode:  http.StatusBadRequest,
 			wantBody:  "state が一致しません\n",
-			wantState: sessionState,
+			wantState: callbackSessionState,
 		},
 		{
+			name:     "missing authorization code",
+			query:    url.Values{"state": {callbackSessionState}},
+			wantCode: http.StatusBadRequest,
+			wantBody: "認可コードがありません\n",
+		},
+	}
+	runCallbackTests(t, tests, "")
+}
+
+func TestHandleCallbackLogin(t *testing.T) {
+	tokenBody, jwks := callbackTokenFixtures(t)
+	tokenBodyWithRefresh := strings.TrimSuffix(tokenBody, "}") + `,"refresh_token":"new-refresh-token"}`
+	wantUserInfo := userInfoRequest{"GET", "https://openidconnect.googleapis.com/v1/userinfo", "Bearer test-access-token"}
+	wantForm := callbackAuthorizationForm()
+	tests := []callbackTestCase{
+		{
 			name:         "successful authorization stores the refresh token",
-			query:        url.Values{"state": {sessionState}, "code": {"authorization-code"}},
+			query:        url.Values{"state": {callbackSessionState}, "code": {"authorization-code"}},
 			wantCode:     http.StatusFound,
 			wantBody:     "<a href=\"/profile\">Found</a>.\n\n",
 			wantLocation: "/profile",
@@ -102,7 +99,7 @@ func TestHandleCallback(t *testing.T) {
 		},
 		{
 			name:         "missing refresh token preserves the saved token",
-			query:        url.Values{"state": {sessionState}, "code": {"authorization-code"}},
+			query:        url.Values{"state": {callbackSessionState}, "code": {"authorization-code"}},
 			wantCode:     http.StatusFound,
 			wantBody:     "<a href=\"/profile\">Found</a>.\n\n",
 			wantLocation: "/profile",
@@ -116,30 +113,8 @@ func TestHandleCallback(t *testing.T) {
 			wantRefresh:  "saved-refresh-token",
 		},
 		{
-			name:         "expired token refreshes before calling UserInfo",
-			query:        url.Values{"state": {sessionState}, "code": {"authorization-code"}},
-			wantCode:     http.StatusFound,
-			wantBody:     "<a href=\"/profile\">Found</a>.\n\n",
-			wantLocation: "/profile",
-			wantForm:     wantForm,
-			tokenCode:    http.StatusOK,
-			tokenBody:    strings.Replace(tokenBody, `"expires_in":3600`, `"expires_in":0`, 1),
-			savedRefresh: "saved-refresh-token",
-			wantRefresh:  "rotated-refresh-token",
-			wantRefreshForm: url.Values{
-				"grant_type":    {"refresh_token"},
-				"refresh_token": {"saved-refresh-token"},
-				"client_id":     {"test-client"},
-				"client_secret": {"test-secret"},
-			},
-			refreshBody:  `{"access_token":"refreshed-access-token","expires_in":3600,"refresh_token":"rotated-refresh-token"}`,
-			userInfoBody: `{"sub":"123","name":"Test User","email":"user@example.com"}`,
-			wantUserInfo: userInfoRequest{"GET", "https://openidconnect.googleapis.com/v1/userinfo", "Bearer refreshed-access-token"},
-			wantSession:  userInfo{Subject: "123", Name: "Test User", Email: "user@example.com"},
-		},
-		{
 			name:     "mismatched UserInfo subject",
-			query:    url.Values{"state": {sessionState}, "code": {"authorization-code"}},
+			query:    url.Values{"state": {callbackSessionState}, "code": {"authorization-code"}},
 			wantCode: http.StatusBadGateway,
 			wantBody: "Google のユーザー情報と ID トークンの sub が一致しません\n",
 			wantForm: url.Values{
@@ -157,14 +132,121 @@ func TestHandleCallback(t *testing.T) {
 			userInfoBody: `{"sub":"456"}`,
 			wantUserInfo: wantUserInfo,
 		},
+	}
+	runCallbackTests(t, tests, jwks)
+}
+
+func TestHandleCallbackRefresh(t *testing.T) {
+	tokenBody, jwks := callbackTokenFixtures(t)
+	wantForm := callbackAuthorizationForm()
+	expiredTokenBody := strings.Replace(tokenBody, `"expires_in":3600`, `"expires_in":0`, 1)
+	wantRefreshForm := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {"saved-refresh-token"},
+		"client_id":     {"test-client"},
+		"client_secret": {"test-secret"},
+	}
+	tests := []callbackTestCase{
 		{
-			name:     "missing authorization code",
-			query:    url.Values{"state": {sessionState}},
-			wantCode: http.StatusBadRequest,
-			wantBody: "認可コードがありません\n",
+			name:            "expired token refreshes before calling UserInfo",
+			query:           url.Values{"state": {callbackSessionState}, "code": {"authorization-code"}},
+			wantCode:        http.StatusFound,
+			wantBody:        "<a href=\"/profile\">Found</a>.\n\n",
+			wantLocation:    "/profile",
+			wantForm:        wantForm,
+			tokenCode:       http.StatusOK,
+			tokenBody:       expiredTokenBody,
+			savedRefresh:    "saved-refresh-token",
+			wantRefresh:     "rotated-refresh-token",
+			wantRefreshForm: wantRefreshForm,
+			refreshCode:     http.StatusOK,
+			refreshBody:     `{"access_token":"refreshed-access-token","expires_in":3600,"refresh_token":"rotated-refresh-token"}`,
+			userInfoBody:    `{"sub":"123","name":"Test User","email":"user@example.com"}`,
+			wantUserInfo:    userInfoRequest{"GET", "https://openidconnect.googleapis.com/v1/userinfo", "Bearer refreshed-access-token"},
+			wantSession:     userInfo{Subject: "123", Name: "Test User", Email: "user@example.com"},
+		},
+		{
+			name:            "refresh response without refresh token preserves the saved value",
+			query:           url.Values{"state": {callbackSessionState}, "code": {"authorization-code"}},
+			wantCode:        http.StatusFound,
+			wantBody:        "<a href=\"/profile\">Found</a>.\n\n",
+			wantLocation:    "/profile",
+			wantForm:        wantForm,
+			tokenCode:       http.StatusOK,
+			tokenBody:       expiredTokenBody,
+			savedRefresh:    "saved-refresh-token",
+			wantRefresh:     "saved-refresh-token",
+			wantRefreshForm: wantRefreshForm,
+			refreshCode:     http.StatusOK,
+			refreshBody:     `{"access_token":"refreshed-access-token","expires_in":3600}`,
+			userInfoBody:    `{"sub":"123","name":"Test User","email":"user@example.com"}`,
+			wantUserInfo:    userInfoRequest{"GET", "https://openidconnect.googleapis.com/v1/userinfo", "Bearer refreshed-access-token"},
+			wantSession:     userInfo{Subject: "123", Name: "Test User", Email: "user@example.com"},
+		},
+		{
+			name:            "invalid grant discards the rejected token and offers reauthorization",
+			query:           url.Values{"state": {callbackSessionState}, "code": {"authorization-code"}},
+			wantCode:        http.StatusBadGateway,
+			wantBody:        `<!doctype html><html lang="ja"><meta charset="utf-8"><title>Google の再認可</title><p>Google のアクセス許可を更新できませんでした。</p><a href="/login?reauthorize=1">Google で再認可する</a></html>`,
+			wantForm:        wantForm,
+			tokenCode:       http.StatusOK,
+			tokenBody:       expiredTokenBody,
+			savedRefresh:    "saved-refresh-token",
+			wantRefreshForm: wantRefreshForm,
+			refreshCode:     http.StatusBadRequest,
+			refreshBody:     `{"error":"invalid_grant"}`,
+		},
+		{
+			name:            "temporary transport error preserves the saved token",
+			query:           url.Values{"state": {callbackSessionState}, "code": {"authorization-code"}},
+			wantCode:        http.StatusBadGateway,
+			wantBody:        "Google のアクセストークンを更新できません\n",
+			wantForm:        wantForm,
+			tokenCode:       http.StatusOK,
+			tokenBody:       expiredTokenBody,
+			savedRefresh:    "saved-refresh-token",
+			wantRefresh:     "saved-refresh-token",
+			wantRefreshForm: wantRefreshForm,
+			refreshErr:      errors.New("temporary network error"),
 		},
 	}
+	runCallbackTests(t, tests, jwks)
+}
 
+func callbackTokenFixtures(t *testing.T) (tokenBody, jwks string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encode := base64.RawURLEncoding.EncodeToString
+	payload := fmt.Sprintf(`{"iss":"https://accounts.google.com","aud":"test-client","exp":%d,"nonce":"test-nonce","sub":"123"}`, time.Now().Add(time.Hour).Unix())
+	signingInput := encode([]byte(`{"alg":"RS256","kid":"test-key"}`)) + "." + encode([]byte(payload))
+	digest := sha256.Sum256([]byte(signingInput))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenBody = fmt.Sprintf(`{"access_token":"test-access-token","expires_in":3600,"id_token":%q}`, signingInput+"."+encode(signature))
+	jwks = fmt.Sprintf(`{"keys":[{"kid":"test-key","kty":"RSA","n":%q,"e":%q}]}`,
+		encode(key.N.Bytes()), encode(big.NewInt(int64(key.E)).Bytes()))
+
+	return tokenBody, jwks
+}
+
+func callbackAuthorizationForm() url.Values {
+	return url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {"authorization-code"},
+		"redirect_uri":  {"http://localhost:8080/callback"},
+		"client_id":     {"test-client"},
+		"client_secret": {"test-secret"},
+		"code_verifier": {"test-verifier"},
+	}
+}
+
+func runCallbackTests(t *testing.T, tests []callbackTestCase, jwks string) {
+	t.Helper()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var sentForm, sentRefreshForm url.Values
@@ -198,7 +280,10 @@ func TestHandleCallback(t *testing.T) {
 					}
 					if req.PostForm.Get("grant_type") == "refresh_token" {
 						sentRefreshForm = req.PostForm
-						return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(tt.refreshBody))}, nil
+						if tt.refreshErr != nil {
+							return nil, tt.refreshErr
+						}
+						return &http.Response{StatusCode: tt.refreshCode, Body: io.NopCloser(strings.NewReader(tt.refreshBody))}, nil
 					}
 					sentForm = req.PostForm
 					return &http.Response{StatusCode: tt.tokenCode, Body: io.NopCloser(strings.NewReader(tt.tokenBody))}, nil
@@ -209,7 +294,7 @@ func TestHandleCallback(t *testing.T) {
 			}
 			login := httptest.NewRecorder()
 			sess := a.sessions.Create(login)
-			sess.State = sessionState
+			sess.State = callbackSessionState
 			sess.CodeVerifier = "test-verifier"
 			sess.Nonce = "test-nonce"
 
@@ -237,37 +322,7 @@ func TestHandleCallback(t *testing.T) {
 			if got := rec.Header().Get("Location"); got != tt.wantLocation {
 				t.Errorf("Location = %q, want %q", got, tt.wantLocation)
 			}
-			if sess.State != tt.wantState {
-				t.Errorf("session state = %q, want %q", sess.State, tt.wantState)
-			}
-			rotated := tt.wantSession.Subject != ""
-			if _, ok := a.sessions.Get(req); ok == rotated {
-				t.Errorf("previous session exists = %t, want %t", ok, !rotated)
-			}
-			res := rec.Result()
-			defer res.Body.Close()
-			cookies := res.Cookies()
-			if !rotated {
-				if len(cookies) != 0 {
-					t.Error("failed callback issued a new cookie")
-				}
-			} else {
-				if len(cookies) != 1 || cookies[0].Name != sessionCookieName || cookies[0].Value == sess.ID {
-					t.Fatal("successful callback did not issue a fresh session cookie")
-				}
-				next := httptest.NewRequest(http.MethodGet, "/", nil)
-				next.AddCookie(cookies[0])
-				current, ok := a.sessions.Get(next)
-				if !ok {
-					t.Fatal("new session cookie does not resolve to a session")
-				}
-				if current.UserInfo != tt.wantSession {
-					t.Errorf("session UserInfo = %+v, want %+v", current.UserInfo, tt.wantSession)
-				}
-				if current.State != "" || current.CodeVerifier != "" || current.Nonce != "" {
-					t.Error("new session retained temporary login data")
-				}
-			}
+			checkCallbackSession(t, a.sessions, sess, req, rec, tt)
 			if sentUserInfo != tt.wantUserInfo {
 				t.Errorf("UserInfo request = %+v, want %+v", sentUserInfo, tt.wantUserInfo)
 			}
@@ -278,6 +333,41 @@ func TestHandleCallback(t *testing.T) {
 				t.Errorf("token request form = %v, want %v", sentForm, tt.wantForm)
 			}
 		})
+	}
+}
+
+func checkCallbackSession(t *testing.T, sessions *SessionStore, sess *Session, req *http.Request, rec *httptest.ResponseRecorder, tt callbackTestCase) {
+	t.Helper()
+	if sess.State != tt.wantState {
+		t.Errorf("session state = %q, want %q", sess.State, tt.wantState)
+	}
+	rotated := tt.wantSession.Subject != ""
+	if _, ok := sessions.Get(req); ok == rotated {
+		t.Errorf("previous session exists = %t, want %t", ok, !rotated)
+	}
+	res := rec.Result()
+	defer res.Body.Close()
+	cookies := res.Cookies()
+	if !rotated {
+		if len(cookies) != 0 {
+			t.Error("failed callback issued a new cookie")
+		}
+	} else {
+		if len(cookies) != 1 || cookies[0].Name != sessionCookieName || cookies[0].Value == sess.ID {
+			t.Fatal("successful callback did not issue a fresh session cookie")
+		}
+		next := httptest.NewRequest(http.MethodGet, "/", nil)
+		next.AddCookie(cookies[0])
+		current, ok := sessions.Get(next)
+		if !ok {
+			t.Fatal("new session cookie does not resolve to a session")
+		}
+		if current.UserInfo != tt.wantSession {
+			t.Errorf("session UserInfo = %+v, want %+v", current.UserInfo, tt.wantSession)
+		}
+		if current.State != "" || current.CodeVerifier != "" || current.Nonce != "" {
+			t.Error("new session retained temporary login data")
+		}
 	}
 }
 
