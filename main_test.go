@@ -61,6 +61,7 @@ func TestHandleCallback(t *testing.T) {
 		query        url.Values
 		wantCode     int
 		wantBody     string
+		wantLocation string
 		wantState    string
 		wantSession  userInfo
 		wantForm     url.Values
@@ -83,8 +84,9 @@ func TestHandleCallback(t *testing.T) {
 		{
 			name:         "successful authorization",
 			query:        url.Values{"state": {sessionState}, "code": {"authorization-code"}},
-			wantCode:     http.StatusOK,
-			wantBody:     "state OK, token exchange OK\n",
+			wantCode:     http.StatusFound,
+			wantBody:     "<a href=\"/profile\">Found</a>.\n\n",
+			wantLocation: "/profile",
 			wantForm:     wantForm,
 			tokenCode:    http.StatusOK,
 			tokenBody:    tokenBody,
@@ -171,6 +173,9 @@ func TestHandleCallback(t *testing.T) {
 			}
 			if got := rec.Body.String(); got != tt.wantBody {
 				t.Errorf("body = %q, want %q", got, tt.wantBody)
+			}
+			if got := rec.Header().Get("Location"); got != tt.wantLocation {
+				t.Errorf("Location = %q, want %q", got, tt.wantLocation)
 			}
 			if sess.State != tt.wantState {
 				t.Errorf("session state = %q, want %q", sess.State, tt.wantState)
@@ -316,6 +321,66 @@ func TestHandleLoginRedirect(t *testing.T) {
 			}
 			for key, expectedValue := range tt.want.sessionQuery {
 				checkQuery(key, expectedValue(sess))
+			}
+		})
+	}
+}
+
+func TestHandleProfile(t *testing.T) {
+	tests := []struct {
+		name         string
+		hasSession   bool
+		info         userInfo
+		wantCode     int
+		wantLocation string
+		wantContent  []string
+	}{
+		{
+			name:         "no session",
+			wantCode:     http.StatusFound,
+			wantLocation: "/login",
+		},
+		{
+			name:         "login in progress",
+			hasSession:   true,
+			wantCode:     http.StatusFound,
+			wantLocation: "/login",
+		},
+		{
+			name:        "authenticated",
+			hasSession:  true,
+			info:        userInfo{Subject: "123", Name: "<b>Test User</b>", Email: "user@example.com"},
+			wantCode:    http.StatusOK,
+			wantContent: []string{"<dd>&lt;b&gt;Test User&lt;/b&gt;</dd>", "<dd>user@example.com</dd>"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &app{sessions: NewSessionStore()}
+			req := httptest.NewRequest(http.MethodGet, "/profile", nil)
+			if tt.hasSession {
+				login := httptest.NewRecorder()
+				sess := a.sessions.Create(login)
+				sess.UserInfo = tt.info
+				res := login.Result()
+				defer res.Body.Close()
+				for _, cookie := range res.Cookies() {
+					req.AddCookie(cookie)
+				}
+			}
+			rec := httptest.NewRecorder()
+			a.handleProfile(rec, req)
+
+			if rec.Code != tt.wantCode {
+				t.Errorf("status = %d, want %d", rec.Code, tt.wantCode)
+			}
+			if got := rec.Header().Get("Location"); got != tt.wantLocation {
+				t.Errorf("Location = %q, want %q", got, tt.wantLocation)
+			}
+			for _, content := range tt.wantContent {
+				if !strings.Contains(rec.Body.String(), content) {
+					t.Errorf("body does not contain %q", content)
+				}
 			}
 		})
 	}

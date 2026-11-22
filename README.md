@@ -179,7 +179,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 
 - [x] `GET userinfo` を `Authorization: Bearer <access_token>` 付きで直接呼ぶ
 - [x] ログイン完了時にセッション ID を再発行する（セッション固定攻撃対策）
-- [ ] `/profile` に名前とメールアドレスを表示する
+- [x] `/profile` に名前とメールアドレスを表示する
 - [ ] `/logout` でセッションを破棄する
 
 観察: ID トークンの claims と userinfo の内容を見比べる。両方に `email`, `name` があるが役割は何が違うか。

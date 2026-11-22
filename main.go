@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
@@ -11,6 +12,18 @@ import (
 )
 
 const googleAuthorizeURL = "https://accounts.google.com/o/oauth2/v2/auth"
+
+var profileTemplate = template.Must(template.New("profile").Parse(`<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>プロフィール</title>
+<h1>プロフィール</h1>
+<dl>
+<dt>名前</dt><dd>{{.Name}}</dd>
+<dt>メールアドレス</dt><dd>{{.Email}}</dd>
+</dl>
+</html>
+`))
 
 type app struct {
 	cfg          Config
@@ -38,6 +51,7 @@ func main() {
 	mux.HandleFunc("GET /{$}", a.handleIndex)
 	mux.HandleFunc("GET /login", a.handleLogin)
 	mux.HandleFunc("GET /callback", a.handleCallback)
+	mux.HandleFunc("GET /profile", a.handleProfile)
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on http://localhost%s (redirect_uri=%s)", addr, cfg.RedirectURI)
@@ -176,6 +190,19 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "セッションがありません。/login からやり直してください", http.StatusBadRequest)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintln(w, "state OK, token exchange OK")
+	http.Redirect(w, r, "/profile", http.StatusFound)
+}
+
+func (a *app) handleProfile(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	sess, ok := a.sessions.Get(r)
+	if !ok || sess.UserInfo.Subject == "" {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := profileTemplate.Execute(w, sess.UserInfo); err != nil {
+		log.Printf("   [profile] render failed: %v", err)
+	}
 }
