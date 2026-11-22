@@ -178,7 +178,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 ### Step 6: userinfo と /profile
 
 - [x] `GET userinfo` を `Authorization: Bearer <access_token>` 付きで直接呼ぶ
-- [ ] ログイン完了時にセッション ID を再発行する（セッション固定攻撃対策）
+- [x] ログイン完了時にセッション ID を再発行する（セッション固定攻撃対策）
 - [ ] `/profile` に名前とメールアドレスを表示する
 - [ ] `/logout` でセッションを破棄する
 

@@ -109,7 +109,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	//    同じ URL を再度開かれても（リプレイ）、もう一致しないようにする。
 	sess.State = ""
 	sess.stateMu.Unlock()
-	log.Printf("   [callback] state OK (session=%s)", sess.ID)
+	log.Printf("   [callback] state OK")
 
 	if authError := q.Get("error"); authError != "" {
 		http.Error(w, fmt.Sprintf("Google の認可に失敗しました (%s)", authError), http.StatusBadRequest)
@@ -172,6 +172,10 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("   [userinfo] sub matched (name present=%t, email present=%t)", info.Name != "", info.Email != "")
 
+	if !a.sessions.CompleteLogin(w, sess, info) {
+		http.Error(w, "セッションがありません。/login からやり直してください", http.StatusBadRequest)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintln(w, "state OK, token exchange OK")
 }

@@ -27,6 +27,9 @@ type Session struct {
 
 	// Nonce は認可リクエストに送り、後で ID トークンの nonce と照合する乱数。
 	Nonce string
+
+	// UserInfo はログイン完了時に新しいセッションに保存する。
+	UserInfo userInfo
 }
 
 // SessionStore はメモリ上のセッション置き場。再起動で消える（学習用途なので割り切る）。
@@ -49,6 +52,23 @@ func (s *SessionStore) Create(w http.ResponseWriter) *Session {
 
 	s.setCookie(w, sess.ID)
 	return sess
+}
+
+// CompleteLogin はログイン途中のセッションを認証済みセッションに置き換える。
+func (s *SessionStore) CompleteLogin(w http.ResponseWriter, previous *Session, info userInfo) bool {
+	sess := &Session{ID: randomToken(32), CreatedAt: time.Now(), UserInfo: info}
+
+	s.mu.Lock()
+	if s.sessions[previous.ID] != previous {
+		s.mu.Unlock()
+		return false
+	}
+	delete(s.sessions, previous.ID)
+	s.sessions[sess.ID] = sess
+	s.mu.Unlock()
+
+	s.setCookie(w, sess.ID)
+	return true
 }
 
 // Get はリクエストの Cookie からセッションを引く。無ければ nil, false。

@@ -62,6 +62,7 @@ func TestHandleCallback(t *testing.T) {
 		wantCode     int
 		wantBody     string
 		wantState    string
+		wantSession  userInfo
 		wantForm     url.Values
 		tokenCode    int
 		tokenBody    string
@@ -89,6 +90,7 @@ func TestHandleCallback(t *testing.T) {
 			tokenBody:    tokenBody,
 			userInfoBody: `{"sub":"123","name":"Test User","email":"user@example.com"}`,
 			wantUserInfo: wantUserInfo,
+			wantSession:  userInfo{Subject: "123", Name: "Test User", Email: "user@example.com"},
 		},
 		{
 			name:     "mismatched UserInfo subject",
@@ -172,6 +174,34 @@ func TestHandleCallback(t *testing.T) {
 			}
 			if sess.State != tt.wantState {
 				t.Errorf("session state = %q, want %q", sess.State, tt.wantState)
+			}
+			rotated := tt.wantSession.Subject != ""
+			if _, ok := a.sessions.Get(req); ok == rotated {
+				t.Errorf("previous session exists = %t, want %t", ok, !rotated)
+			}
+			res := rec.Result()
+			defer res.Body.Close()
+			cookies := res.Cookies()
+			if !rotated {
+				if len(cookies) != 0 {
+					t.Error("failed callback issued a new cookie")
+				}
+			} else {
+				if len(cookies) != 1 || cookies[0].Name != sessionCookieName || cookies[0].Value == sess.ID {
+					t.Fatal("successful callback did not issue a fresh session cookie")
+				}
+				next := httptest.NewRequest(http.MethodGet, "/", nil)
+				next.AddCookie(cookies[0])
+				current, ok := a.sessions.Get(next)
+				if !ok {
+					t.Fatal("new session cookie does not resolve to a session")
+				}
+				if current.UserInfo != tt.wantSession {
+					t.Errorf("session UserInfo = %+v, want %+v", current.UserInfo, tt.wantSession)
+				}
+				if current.State != "" || current.CodeVerifier != "" || current.Nonce != "" {
+					t.Error("new session retained temporary login data")
+				}
 			}
 			if sentUserInfo != tt.wantUserInfo {
 				t.Errorf("UserInfo request = %+v, want %+v", sentUserInfo, tt.wantUserInfo)
