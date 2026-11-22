@@ -22,6 +22,9 @@ var profileTemplate = template.Must(template.New("profile").Parse(`<!doctype htm
 <dt>名前</dt><dd>{{.Name}}</dd>
 <dt>メールアドレス</dt><dd>{{.Email}}</dd>
 </dl>
+<form method="post" action="/logout">
+<button type="submit">ログアウト</button>
+</form>
 </html>
 `))
 
@@ -52,6 +55,7 @@ func main() {
 	mux.HandleFunc("GET /login", a.handleLogin)
 	mux.HandleFunc("GET /callback", a.handleCallback)
 	mux.HandleFunc("GET /profile", a.handleProfile)
+	mux.Handle("POST /logout", http.NewCrossOriginProtection().Handler(http.HandlerFunc(a.handleLogout)))
 
 	addr := ":" + cfg.Port
 	log.Printf("listening on http://localhost%s (redirect_uri=%s)", addr, cfg.RedirectURI)
@@ -205,4 +209,9 @@ func (a *app) handleProfile(w http.ResponseWriter, r *http.Request) {
 	if err := profileTemplate.Execute(w, sess.UserInfo); err != nil {
 		log.Printf("   [profile] render failed: %v", err)
 	}
+}
+
+func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
+	a.sessions.Delete(w, r)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

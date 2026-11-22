@@ -66,6 +66,9 @@ sequenceDiagram
 
     B->>A: GET /profile (Cookie: sid=...)
     A-->>B: 200 名前とメールアドレスを表示
+
+    B->>A: POST /logout (Cookie: sid=...)
+    A-->>B: 303 Location: /、sid Cookie を削除
 ```
 
 ### どこで何を観察するか
@@ -180,7 +183,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 - [x] `GET userinfo` を `Authorization: Bearer <access_token>` 付きで直接呼ぶ
 - [x] ログイン完了時にセッション ID を再発行する（セッション固定攻撃対策）
 - [x] `/profile` に名前とメールアドレスを表示する
-- [ ] `/logout` でセッションを破棄する
+- [x] `POST /logout` でセッションを破棄する
 
 観察: ID トークンの claims と userinfo の内容を見比べる。両方に `email`, `name` があるが役割は何が違うか。
 

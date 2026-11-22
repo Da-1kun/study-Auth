@@ -385,3 +385,28 @@ func TestHandleProfile(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleLogout(t *testing.T) {
+	a := &app{sessions: NewSessionStore()}
+	login := httptest.NewRecorder()
+	sess := a.sessions.Create(login)
+	sess.UserInfo = userInfo{Subject: "123"}
+
+	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sess.ID})
+	rec := httptest.NewRecorder()
+	a.handleLogout(rec, req)
+
+	res := rec.Result()
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/" {
+		t.Errorf("logout returned status %d and Location %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	cookies := res.Cookies()
+	if len(cookies) != 1 || cookies[0].Name != sessionCookieName || cookies[0].Path != "/" || cookies[0].MaxAge != -1 {
+		t.Error("logout did not send a deletion cookie for the session")
+	}
+	if _, ok := a.sessions.Get(req); ok {
+		t.Error("old session cookie still resolves after logout")
+	}
+}
