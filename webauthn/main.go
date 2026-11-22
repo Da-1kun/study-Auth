@@ -15,7 +15,9 @@ const (
 )
 
 func main() {
+	sessions := &sessionStore{sessions: make(map[string]pendingChallenge)}
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /register/options", sessions.handleRegistrationOptions)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		io.WriteString(w, "WebAuthn 学習用サーバー\n")
