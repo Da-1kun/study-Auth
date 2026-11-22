@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -93,8 +94,10 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"code_challenge":        {codeChallenge(sess.CodeVerifier)},
 		"code_challenge_method": {"S256"},
 	}
-	// refresh_token の受け取りを再同意で確認するときに有効化する。
-	// query.Set("prompt", "consent")
+	// 再認可を選んだ場合にだけ Google に同意画面の表示を求める。
+	if r.URL.Query().Get("reauthorize") == "1" {
+		query.Set("prompt", "consent")
+	}
 	http.Redirect(w, r, googleAuthorizeURL+"?"+query.Encode(), http.StatusFound)
 }
 
@@ -197,6 +200,14 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		refreshed, err := a.refreshAccessToken(r.Context(), refreshToken)
 		if err != nil {
 			log.Printf("   [callback] access token refresh failed: %v", err)
+			if errors.Is(err, errInvalidGrant) {
+				a.sessions.discardRefreshToken(subject, refreshToken)
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusBadGateway)
+				fmt.Fprint(w, `<!doctype html><html lang="ja"><meta charset="utf-8"><title>Google の再認可</title><p>Google のアクセス許可を更新できませんでした。</p><a href="/login?reauthorize=1">Google で再認可する</a></html>`)
+				return
+			}
 			http.Error(w, "Google のアクセストークンを更新できません", http.StatusBadGateway)
 			return
 		}

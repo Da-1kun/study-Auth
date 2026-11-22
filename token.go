@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -12,6 +14,8 @@ import (
 )
 
 const googleTokenURL = "https://oauth2.googleapis.com/token"
+
+var errInvalidGrant = errors.New("Google token endpoint returned invalid_grant")
 
 type tokenResponse struct {
 	RefreshToken string `json:"refresh_token,omitempty"`
@@ -69,6 +73,14 @@ func (a *app) requestTokens(ctx context.Context, form url.Values) (tokenResponse
 	logResponse.Header = http.Header{"Content-Type": res.Header.Values("Content-Type")}
 	if dump, err := httputil.DumpResponse(&logResponse, false); err == nil {
 		log.Printf("   [token] response\n%s", dump)
+	}
+	if res.StatusCode == http.StatusBadRequest {
+		var failure struct {
+			Code string `json:"error"`
+		}
+		if err := json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&failure); err == nil && failure.Code == "invalid_grant" {
+			return tokenResponse{}, errInvalidGrant
+		}
 	}
 	if res.StatusCode != http.StatusOK {
 		return tokenResponse{}, fmt.Errorf("Google token endpoint returned HTTP %d", res.StatusCode)

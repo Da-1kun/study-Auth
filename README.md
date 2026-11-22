@@ -90,9 +90,11 @@ sequenceDiagram
         alt 更新成功
             T-->>A: access_token, expires_in（refresh_token は省略されることがある）
             Note over A: 新しいアクセストークンと有効期限を保存<br/>refresh_token が返った場合は保存値を更新
-        else invalid_grant（次の項目で実装）
+        else invalid_grant
             T-->>A: 更新拒否
-            Note over A: 保存済みの refresh_token を破棄し、再認可を案内
+            Note over A: 拒否された refresh_token を破棄し、再認可を案内
+        else 通信エラー
+            Note over A: 保存済みの refresh_token を保持
         end
     end
     opt 有効なアクセストークンがある
@@ -233,7 +235,7 @@ Google API をログイン後も呼ぶ場合に備えて、アクセストーク
 - [x] 認可コード交換時の `tokenResponse` に `refresh_token` を追加し、検証済みのログインに紐づけてサーバ側に保存する。Google が返さない場合は、同じユーザーの保存済みトークンがあれば保持する
 - [x] Google の `/token` に `grant_type=refresh_token`, `refresh_token`, `client_id`, `client_secret` をフォームで POST し、新しい `access_token` と `expires_in` を受け取る
 - [x] `expires_in` からアクセストークンの有効期限を管理し、Google API を呼ぶときに期限切れなら更新する。更新レスポンスに新しい `refresh_token` があれば保存し直す
-- [ ] `invalid_grant` で更新を拒否されたら保存済みの `refresh_token` を破棄し、Google API を再び使うための認可フローを案内する。一時的な通信エラーの場合は保存済みの値を保持する
+- [x] `invalid_grant` で更新を拒否されたら保存済みの `refresh_token` を破棄し、再認可リンクを案内する。リンクから開いた `/login?reauthorize=1` では `prompt=consent` を送る。一時的な通信エラーの場合は保存済みの値を保持する
 - [ ] テーブル駆動テストで、更新成功、`refresh_token` が省略された場合、更新拒否、一時的な通信エラーを確認する
 
 観察（Network タブ / サーバーログ）: `/login` の `Location` に `access_type=offline` が付くことを確認する。テストでアクセストークンを期限切れにし、Google API の呼び出し前にサーバ側から `grant_type=refresh_token` のリクエストが送られることを確認する。ログを使う場合は各トークンと `client_secret` の値を伏せる。

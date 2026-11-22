@@ -86,6 +86,15 @@ func (s *SessionStore) refreshToken(subject string) string {
 	return s.refreshTokens[subject]
 }
 
+// discardRefreshToken は、拒否された値がまだ保存されている場合だけ削除する。
+func (s *SessionStore) discardRefreshToken(subject, rejectedToken string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refreshTokens[subject] == rejectedToken {
+		delete(s.refreshTokens, subject)
+	}
+}
+
 // Get はリクエストの Cookie からセッションを引く。無ければ nil, false。
 func (s *SessionStore) Get(r *http.Request) (*Session, bool) {
 	c, err := r.Cookie(sessionCookieName)
