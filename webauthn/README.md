@@ -4,13 +4,13 @@
 
 ## ローカルで動かす
 
-WebAuthn は実装前。この README のステップを進め、Step 0 で起動できるようになったら、Go 1.26.2 以上でリポジトリのルートから実行する。
+Step 0 の最小サーバーを起動するには、Go 1.26.2 以上でリポジトリのルートから実行する。
 
 ```sh
 go run ./webauthn
 ```
 
-ブラウザで `http://localhost:8081` を開く。WebAuthn はセキュアコンテキストで利用でき、ローカル開発では `http://localhost` を使える。この課題では期待する origin を `http://localhost:8081`、RP ID を `localhost` に固定する。アクセスする URL もこの設定にそろえる。リポジトリの `make run` は OIDC 用で、`make test` はリポジトリ全体の Go テストを実行する。
+ブラウザで `http://localhost:8081` を開くと「WebAuthn 学習用サーバー」と表示される。WebAuthn はセキュアコンテキストで利用でき、ローカル開発では `http://localhost` を使える。この課題では期待する origin を `http://localhost:8081`、RP ID を `localhost` に固定する。アクセスする URL もこの設定にそろえる。リポジトリの `make run` は OIDC 用で、`make test` はリポジトリ全体の Go テストを実行する。
 
 Step 6 までの実装後は、学習用の固定アカウントで「パスキーを登録」を選び、認証器の案内に従う。続けて「パスキーでログイン」を選び、プロフィールが表示されることを確認する。端末のパスキーが使えない場合は、ブラウザの開発者ツールが提供する仮想認証器でも試せる。
 
@@ -87,7 +87,7 @@ sequenceDiagram
 
 ### Step 0 — 準備
 
-- [ ] 既存の Go モジュール内の `webauthn/` に `net/http` で `/` を返すサーバーを作る
+- [x] 既存の Go モジュール内の `webauthn/` に `net/http` で `/` を返すサーバーを作る
 - [ ] 固定アカウントに安定したランダムな user handle（`user.id` に使う最大 64 バイトの識別子）を割り当てる
 - [ ] ブラウザで `window.isSecureContext` と `window.PublicKeyCredential` を確認する
 
