@@ -87,6 +87,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"redirect_uri":          {a.cfg.RedirectURI},
 		"response_type":         {"code"},
 		"scope":                 {"openid email profile"},
+		"access_type":           {"offline"},
 		"state":                 {sess.State},
 		"nonce":                 {sess.Nonce},
 		"code_challenge":        {codeChallenge(sess.CodeVerifier)},
@@ -190,7 +191,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("   [userinfo] sub matched (name present=%t, email present=%t)", info.Name != "", info.Email != "")
 
-	if !a.sessions.CompleteLogin(w, sess, info) {
+	if !a.sessions.CompleteLogin(w, sess, info, tokens.RefreshToken) {
 		http.Error(w, "セッションがありません。/login からやり直してください", http.StatusBadRequest)
 		return
 	}

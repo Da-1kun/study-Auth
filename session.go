@@ -36,10 +36,15 @@ type Session struct {
 type SessionStore struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
+	// refreshTokens は検証済みの Google sub ごとに保持する。
+	refreshTokens map[string]string
 }
 
 func NewSessionStore() *SessionStore {
-	return &SessionStore{sessions: make(map[string]*Session)}
+	return &SessionStore{
+		sessions:      make(map[string]*Session),
+		refreshTokens: make(map[string]string),
+	}
 }
 
 // Create は新しいセッションを作ってストアに登録し、Cookie をレスポンスに付ける。
@@ -55,13 +60,16 @@ func (s *SessionStore) Create(w http.ResponseWriter) *Session {
 }
 
 // CompleteLogin はログイン途中のセッションを認証済みセッションに置き換える。
-func (s *SessionStore) CompleteLogin(w http.ResponseWriter, previous *Session, info userInfo) bool {
+func (s *SessionStore) CompleteLogin(w http.ResponseWriter, previous *Session, info userInfo, refreshToken string) bool {
 	sess := &Session{ID: randomToken(32), CreatedAt: time.Now(), UserInfo: info}
 
 	s.mu.Lock()
 	if s.sessions[previous.ID] != previous {
 		s.mu.Unlock()
 		return false
+	}
+	if refreshToken != "" {
+		s.refreshTokens[info.Subject] = refreshToken
 	}
 	delete(s.sessions, previous.ID)
 	s.sessions[sess.ID] = sess

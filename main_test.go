@@ -39,6 +39,7 @@ func TestHandleCallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	tokenBody := fmt.Sprintf(`{"access_token":"test-access-token","id_token":%q}`, signingInput+"."+encode(signature))
+	tokenBodyWithRefresh := strings.TrimSuffix(tokenBody, "}") + `,"refresh_token":"new-refresh-token"}`
 	jwks := fmt.Sprintf(`{"keys":[{"kid":"test-key","kty":"RSA","n":%q,"e":%q}]}`,
 		encode(key.N.Bytes()), encode(big.NewInt(int64(key.E)).Bytes()))
 
@@ -64,6 +65,8 @@ func TestHandleCallback(t *testing.T) {
 		wantLocation string
 		wantState    string
 		wantSession  userInfo
+		savedRefresh string
+		wantRefresh  string
 		wantForm     url.Values
 		tokenCode    int
 		tokenBody    string
@@ -82,7 +85,21 @@ func TestHandleCallback(t *testing.T) {
 			wantState: sessionState,
 		},
 		{
-			name:         "successful authorization",
+			name:         "successful authorization stores the refresh token",
+			query:        url.Values{"state": {sessionState}, "code": {"authorization-code"}},
+			wantCode:     http.StatusFound,
+			wantBody:     "<a href=\"/profile\">Found</a>.\n\n",
+			wantLocation: "/profile",
+			wantForm:     wantForm,
+			tokenCode:    http.StatusOK,
+			tokenBody:    tokenBodyWithRefresh,
+			wantRefresh:  "new-refresh-token",
+			userInfoBody: `{"sub":"123","name":"Test User","email":"user@example.com"}`,
+			wantUserInfo: wantUserInfo,
+			wantSession:  userInfo{Subject: "123", Name: "Test User", Email: "user@example.com"},
+		},
+		{
+			name:         "missing refresh token preserves the saved token",
 			query:        url.Values{"state": {sessionState}, "code": {"authorization-code"}},
 			wantCode:     http.StatusFound,
 			wantBody:     "<a href=\"/profile\">Found</a>.\n\n",
@@ -93,6 +110,8 @@ func TestHandleCallback(t *testing.T) {
 			userInfoBody: `{"sub":"123","name":"Test User","email":"user@example.com"}`,
 			wantUserInfo: wantUserInfo,
 			wantSession:  userInfo{Subject: "123", Name: "Test User", Email: "user@example.com"},
+			savedRefresh: "saved-refresh-token",
+			wantRefresh:  "saved-refresh-token",
 		},
 		{
 			name:     "mismatched UserInfo subject",
@@ -108,7 +127,9 @@ func TestHandleCallback(t *testing.T) {
 				"code_verifier": {"test-verifier"},
 			},
 			tokenCode:    http.StatusOK,
-			tokenBody:    tokenBody,
+			tokenBody:    tokenBodyWithRefresh,
+			savedRefresh: "saved-refresh-token",
+			wantRefresh:  "saved-refresh-token",
 			userInfoBody: `{"sub":"456"}`,
 			wantUserInfo: wantUserInfo,
 		},
@@ -155,6 +176,9 @@ func TestHandleCallback(t *testing.T) {
 					return &http.Response{StatusCode: tt.tokenCode, Body: io.NopCloser(strings.NewReader(tt.tokenBody))}, nil
 				})},
 			}
+			if tt.savedRefresh != "" {
+				a.sessions.refreshTokens["123"] = tt.savedRefresh
+			}
 			login := httptest.NewRecorder()
 			sess := a.sessions.Create(login)
 			sess.State = sessionState
@@ -167,6 +191,14 @@ func TestHandleCallback(t *testing.T) {
 			}
 			rec := httptest.NewRecorder()
 			a.handleCallback(rec, req)
+
+			wantRefreshTokens := map[string]string{}
+			if tt.wantRefresh != "" {
+				wantRefreshTokens["123"] = tt.wantRefresh
+			}
+			if !reflect.DeepEqual(a.sessions.refreshTokens, wantRefreshTokens) {
+				t.Error("unexpected refresh tokens in the session store")
+			}
 
 			if rec.Code != tt.wantCode {
 				t.Errorf("status = %d, want %d", rec.Code, tt.wantCode)
@@ -250,6 +282,7 @@ func TestHandleLoginRedirect(t *testing.T) {
 					"redirect_uri":          "http://localhost:8080/callback",
 					"response_type":         "code",
 					"scope":                 "openid email profile",
+					"access_type":           "offline",
 					"code_challenge_method": "S256",
 				},
 				sessionQuery: sessionQuery,
@@ -270,6 +303,7 @@ func TestHandleLoginRedirect(t *testing.T) {
 					"redirect_uri":          "https://example.com/callback?source=a%2Bb&return=%2Fhome",
 					"response_type":         "code",
 					"scope":                 "openid email profile",
+					"access_type":           "offline",
 					"code_challenge_method": "S256",
 				},
 				sessionQuery: sessionQuery,

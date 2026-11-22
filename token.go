@@ -14,11 +14,12 @@ import (
 const googleTokenURL = "https://oauth2.googleapis.com/token"
 
 type tokenResponse struct {
-	AccessToken string `json:"access_token"`
-	IDToken     string `json:"id_token"`
-	ExpiresIn   int    `json:"expires_in"`
-	Scope       string `json:"scope"`
-	TokenType   string `json:"token_type"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	AccessToken  string `json:"access_token"`
+	IDToken      string `json:"id_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	Scope        string `json:"scope"`
+	TokenType    string `json:"token_type"`
 }
 
 func (a *app) exchangeCode(ctx context.Context, code, verifier string) (tokenResponse, error) {
@@ -68,6 +69,9 @@ func (a *app) exchangeCode(ctx context.Context, code, verifier string) (tokenRes
 		ExpiresIn:   tokens.ExpiresIn,
 		Scope:       tokens.Scope,
 		TokenType:   tokens.TokenType,
+	}
+	if tokens.RefreshToken != "" {
+		loggedTokens.RefreshToken = "[redacted]"
 	}
 	body, _ := json.Marshal(loggedTokens)
 	log.Printf("   [token] response JSON: %s", body)
