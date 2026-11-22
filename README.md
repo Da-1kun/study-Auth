@@ -77,7 +77,7 @@ sequenceDiagram
 | Network タブ: `/callback` のリクエスト | URL に露出する `code` と `state`、送られる `Cookie` | 1, 4 |
 | サーバーログ | `/token` への POST 本文とレスポンス JSON（ブラウザからは見えない） | 4 |
 | サーバーログ | JWKS 取得、デコードした header / claims、検証結果 | 5 |
-| サーバーログ | userinfo へのリクエストヘッダとレスポンス JSON | 6 |
+| サーバーログ | userinfo への Bearer 付き GET、HTTP ステータス、`sub` の照合結果 | 6 |
 | ブラウザ: `/profile` | 名前とメールアドレス | 6 |
 
 ## 実装要件（縛り）
@@ -177,7 +177,7 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 
 ### Step 6: userinfo と /profile
 
-- [ ] `GET userinfo` を `Authorization: Bearer <access_token>` 付きで直接呼ぶ
+- [x] `GET userinfo` を `Authorization: Bearer <access_token>` 付きで直接呼ぶ
 - [ ] ログイン完了時にセッション ID を再発行する（セッション固定攻撃対策）
 - [ ] `/profile` に名前とメールアドレスを表示する
 - [ ] `/logout` でセッションを破棄する

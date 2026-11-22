@@ -155,6 +155,23 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var subject string
+	if err := json.Unmarshal(decoded.Payload["sub"], &subject); err != nil || subject == "" {
+		http.Error(w, "Google の ID トークンに sub がありません", http.StatusBadGateway)
+		return
+	}
+	info, err := a.fetchUserInfo(r.Context(), tokens.AccessToken)
+	if err != nil {
+		log.Printf("   [callback] UserInfo request failed: %v", err)
+		http.Error(w, "Google のユーザー情報を取得できませんでした", http.StatusBadGateway)
+		return
+	}
+	if info.Subject != subject {
+		http.Error(w, "Google のユーザー情報と ID トークンの sub が一致しません", http.StatusBadGateway)
+		return
+	}
+	log.Printf("   [userinfo] sub matched (name present=%t, email present=%t)", info.Name != "", info.Email != "")
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	fmt.Fprintln(w, "state OK, token exchange OK")
 }

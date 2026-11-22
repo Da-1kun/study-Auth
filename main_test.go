@@ -38,19 +38,33 @@ func TestHandleCallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokenBody := fmt.Sprintf(`{"id_token":%q}`, signingInput+"."+encode(signature))
+	tokenBody := fmt.Sprintf(`{"access_token":"test-access-token","id_token":%q}`, signingInput+"."+encode(signature))
 	jwks := fmt.Sprintf(`{"keys":[{"kid":"test-key","kty":"RSA","n":%q,"e":%q}]}`,
 		encode(key.N.Bytes()), encode(big.NewInt(int64(key.E)).Bytes()))
 
+	type userInfoRequest struct {
+		method, endpoint, authorization string
+	}
+	wantUserInfo := userInfoRequest{"GET", "https://openidconnect.googleapis.com/v1/userinfo", "Bearer test-access-token"}
+	wantForm := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {"authorization-code"},
+		"redirect_uri":  {"http://localhost:8080/callback"},
+		"client_id":     {"test-client"},
+		"client_secret": {"test-secret"},
+		"code_verifier": {"test-verifier"},
+	}
 	tests := []struct {
-		name      string
-		query     url.Values
-		wantCode  int
-		wantBody  string
-		wantState string
-		wantForm  url.Values
-		tokenCode int
-		tokenBody string
+		userInfoBody string
+		wantUserInfo userInfoRequest
+		name         string
+		query        url.Values
+		wantCode     int
+		wantBody     string
+		wantState    string
+		wantForm     url.Values
+		tokenCode    int
+		tokenBody    string
 	}{
 		{
 			name:     "consent denied",
@@ -66,10 +80,21 @@ func TestHandleCallback(t *testing.T) {
 			wantState: sessionState,
 		},
 		{
-			name:     "successful authorization",
+			name:         "successful authorization",
+			query:        url.Values{"state": {sessionState}, "code": {"authorization-code"}},
+			wantCode:     http.StatusOK,
+			wantBody:     "state OK, token exchange OK\n",
+			wantForm:     wantForm,
+			tokenCode:    http.StatusOK,
+			tokenBody:    tokenBody,
+			userInfoBody: `{"sub":"123","name":"Test User","email":"user@example.com"}`,
+			wantUserInfo: wantUserInfo,
+		},
+		{
+			name:     "mismatched UserInfo subject",
 			query:    url.Values{"state": {sessionState}, "code": {"authorization-code"}},
-			wantCode: http.StatusOK,
-			wantBody: "state OK, token exchange OK\n",
+			wantCode: http.StatusBadGateway,
+			wantBody: "Google のユーザー情報と ID トークンの sub が一致しません\n",
 			wantForm: url.Values{
 				"grant_type":    {"authorization_code"},
 				"code":          {"authorization-code"},
@@ -78,8 +103,10 @@ func TestHandleCallback(t *testing.T) {
 				"client_secret": {"test-secret"},
 				"code_verifier": {"test-verifier"},
 			},
-			tokenCode: http.StatusOK,
-			tokenBody: tokenBody,
+			tokenCode:    http.StatusOK,
+			tokenBody:    tokenBody,
+			userInfoBody: `{"sub":"456"}`,
+			wantUserInfo: wantUserInfo,
 		},
 		{
 			name:     "missing authorization code",
@@ -92,6 +119,7 @@ func TestHandleCallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var sentForm url.Values
+			var sentUserInfo userInfoRequest
 			a := &app{
 				cfg: Config{
 					ClientID: "test-client", ClientSecret: "test-secret",
@@ -101,6 +129,13 @@ func TestHandleCallback(t *testing.T) {
 				googleClient: &http.Client{Transport: tokenRoundTripper(func(req *http.Request) (*http.Response, error) {
 					if req.Method == http.MethodGet && req.URL.String() == "https://www.googleapis.com/oauth2/v3/certs" {
 						return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(jwks))}, nil
+					}
+					if req.URL.Host == "openidconnect.googleapis.com" {
+						sentUserInfo = userInfoRequest{req.Method, req.URL.String(), req.Header.Get("Authorization")}
+						return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(tt.userInfoBody))}, nil
+					}
+					if req.Body == nil {
+						t.Fatalf("unexpected request: %s %s", req.Method, req.URL)
 					}
 					defer req.Body.Close()
 					if req.Method != http.MethodPost || req.URL.String() != "https://oauth2.googleapis.com/token" {
@@ -137,6 +172,9 @@ func TestHandleCallback(t *testing.T) {
 			}
 			if sess.State != tt.wantState {
 				t.Errorf("session state = %q, want %q", sess.State, tt.wantState)
+			}
+			if sentUserInfo != tt.wantUserInfo {
+				t.Errorf("UserInfo request = %+v, want %+v", sentUserInfo, tt.wantUserInfo)
 			}
 			if !reflect.DeepEqual(sentForm, tt.wantForm) {
 				t.Errorf("token request form = %v, want %v", sentForm, tt.wantForm)
