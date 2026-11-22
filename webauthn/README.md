@@ -88,7 +88,7 @@ sequenceDiagram
 ### Step 0 — 準備
 
 - [x] 既存の Go モジュール内の `webauthn/` に `net/http` で `/` を返すサーバーを作る
-- [ ] 固定アカウントに安定したランダムな user handle（`user.id` に使う最大 64 バイトの識別子）を割り当てる
+- [x] 固定アカウント `demo` に安定したランダムな user handle（`user.id` に使う最大 64 バイトの識別子）を割り当てる。一度生成した 32 バイトの乱数をパディングなしの base64url で保持し、サーバー再起動後も同じ値を使う
 - [ ] ブラウザで `window.isSecureContext` と `window.PublicKeyCredential` を確認する
 
 ### Step 1 — セッションと challenge
