@@ -142,6 +142,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "認可コードがありません", http.StatusBadRequest)
 		return
 	}
+	tokenRequestedAt := time.Now()
 	tokens, err := a.exchangeCode(r.Context(), code, sess.CodeVerifier)
 	if err != nil {
 		log.Printf("   [callback] token exchange failed: %v", err)
@@ -181,6 +182,33 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Google の ID トークンに sub がありません", http.StatusBadGateway)
 		return
 	}
+	savedRefreshToken := a.sessions.refreshToken(subject)
+	expiresAt := tokenRequestedAt.Add(time.Duration(tokens.ExpiresIn) * time.Second)
+	if !time.Now().Before(expiresAt) {
+		refreshToken := tokens.RefreshToken
+		if refreshToken == "" {
+			refreshToken = savedRefreshToken
+		}
+		if refreshToken == "" {
+			http.Error(w, "Google のアクセストークンを更新できません", http.StatusBadGateway)
+			return
+		}
+		refreshRequestedAt := time.Now()
+		refreshed, err := a.refreshAccessToken(r.Context(), refreshToken)
+		if err != nil {
+			log.Printf("   [callback] access token refresh failed: %v", err)
+			http.Error(w, "Google のアクセストークンを更新できません", http.StatusBadGateway)
+			return
+		}
+		if refreshed.AccessToken == "" || !time.Now().Before(refreshRequestedAt.Add(time.Duration(refreshed.ExpiresIn)*time.Second)) {
+			http.Error(w, "Google の更新レスポンスに有効なアクセストークンがありません", http.StatusBadGateway)
+			return
+		}
+		tokens.AccessToken = refreshed.AccessToken
+		if refreshed.RefreshToken != "" {
+			tokens.RefreshToken = refreshed.RefreshToken
+		}
+	}
 	info, err := a.fetchUserInfo(r.Context(), tokens.AccessToken)
 	if err != nil {
 		log.Printf("   [callback] UserInfo request failed: %v", err)
@@ -193,7 +221,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("   [userinfo] sub matched (name present=%t, email present=%t)", info.Name != "", info.Email != "")
 
-	if !a.sessions.CompleteLogin(w, sess, info, tokens.RefreshToken) {
+	if !a.sessions.CompleteLogin(w, sess, info, savedRefreshToken, tokens.RefreshToken) {
 		http.Error(w, "セッションがありません。/login からやり直してください", http.StatusBadRequest)
 		return
 	}

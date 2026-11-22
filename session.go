@@ -60,7 +60,7 @@ func (s *SessionStore) Create(w http.ResponseWriter) *Session {
 }
 
 // CompleteLogin はログイン途中のセッションを認証済みセッションに置き換える。
-func (s *SessionStore) CompleteLogin(w http.ResponseWriter, previous *Session, info userInfo, refreshToken string) bool {
+func (s *SessionStore) CompleteLogin(w http.ResponseWriter, previous *Session, info userInfo, savedRefreshToken, refreshToken string) bool {
 	sess := &Session{ID: randomToken(32), CreatedAt: time.Now(), UserInfo: info}
 
 	s.mu.Lock()
@@ -68,7 +68,8 @@ func (s *SessionStore) CompleteLogin(w http.ResponseWriter, previous *Session, i
 		s.mu.Unlock()
 		return false
 	}
-	if refreshToken != "" {
+	// 更新中に別のログインが保存した値を上書きしない。
+	if refreshToken != "" && s.refreshTokens[info.Subject] == savedRefreshToken {
 		s.refreshTokens[info.Subject] = refreshToken
 	}
 	delete(s.sessions, previous.ID)
@@ -77,6 +78,12 @@ func (s *SessionStore) CompleteLogin(w http.ResponseWriter, previous *Session, i
 
 	s.setCookie(w, sess.ID)
 	return true
+}
+
+func (s *SessionStore) refreshToken(subject string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.refreshTokens[subject]
 }
 
 // Get はリクエストの Cookie からセッションを引く。無ければ nil, false。

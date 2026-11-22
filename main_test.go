@@ -38,7 +38,7 @@ func TestHandleCallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokenBody := fmt.Sprintf(`{"access_token":"test-access-token","id_token":%q}`, signingInput+"."+encode(signature))
+	tokenBody := fmt.Sprintf(`{"access_token":"test-access-token","expires_in":3600,"id_token":%q}`, signingInput+"."+encode(signature))
 	tokenBodyWithRefresh := strings.TrimSuffix(tokenBody, "}") + `,"refresh_token":"new-refresh-token"}`
 	jwks := fmt.Sprintf(`{"keys":[{"kid":"test-key","kty":"RSA","n":%q,"e":%q}]}`,
 		encode(key.N.Bytes()), encode(big.NewInt(int64(key.E)).Bytes()))
@@ -56,20 +56,22 @@ func TestHandleCallback(t *testing.T) {
 		"code_verifier": {"test-verifier"},
 	}
 	tests := []struct {
-		userInfoBody string
-		wantUserInfo userInfoRequest
-		name         string
-		query        url.Values
-		wantCode     int
-		wantBody     string
-		wantLocation string
-		wantState    string
-		wantSession  userInfo
-		savedRefresh string
-		wantRefresh  string
-		wantForm     url.Values
-		tokenCode    int
-		tokenBody    string
+		userInfoBody    string
+		wantUserInfo    userInfoRequest
+		name            string
+		query           url.Values
+		wantCode        int
+		wantBody        string
+		wantLocation    string
+		wantState       string
+		wantSession     userInfo
+		savedRefresh    string
+		wantRefresh     string
+		wantForm        url.Values
+		wantRefreshForm url.Values
+		refreshBody     string
+		tokenCode       int
+		tokenBody       string
 	}{
 		{
 			name:     "consent denied",
@@ -114,6 +116,28 @@ func TestHandleCallback(t *testing.T) {
 			wantRefresh:  "saved-refresh-token",
 		},
 		{
+			name:         "expired token refreshes before calling UserInfo",
+			query:        url.Values{"state": {sessionState}, "code": {"authorization-code"}},
+			wantCode:     http.StatusFound,
+			wantBody:     "<a href=\"/profile\">Found</a>.\n\n",
+			wantLocation: "/profile",
+			wantForm:     wantForm,
+			tokenCode:    http.StatusOK,
+			tokenBody:    strings.Replace(tokenBody, `"expires_in":3600`, `"expires_in":0`, 1),
+			savedRefresh: "saved-refresh-token",
+			wantRefresh:  "rotated-refresh-token",
+			wantRefreshForm: url.Values{
+				"grant_type":    {"refresh_token"},
+				"refresh_token": {"saved-refresh-token"},
+				"client_id":     {"test-client"},
+				"client_secret": {"test-secret"},
+			},
+			refreshBody:  `{"access_token":"refreshed-access-token","expires_in":3600,"refresh_token":"rotated-refresh-token"}`,
+			userInfoBody: `{"sub":"123","name":"Test User","email":"user@example.com"}`,
+			wantUserInfo: userInfoRequest{"GET", "https://openidconnect.googleapis.com/v1/userinfo", "Bearer refreshed-access-token"},
+			wantSession:  userInfo{Subject: "123", Name: "Test User", Email: "user@example.com"},
+		},
+		{
 			name:     "mismatched UserInfo subject",
 			query:    url.Values{"state": {sessionState}, "code": {"authorization-code"}},
 			wantCode: http.StatusBadGateway,
@@ -143,7 +167,7 @@ func TestHandleCallback(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var sentForm url.Values
+			var sentForm, sentRefreshForm url.Values
 			var sentUserInfo userInfoRequest
 			a := &app{
 				cfg: Config{
@@ -171,6 +195,10 @@ func TestHandleCallback(t *testing.T) {
 					}
 					if err := req.ParseForm(); err != nil {
 						t.Fatal(err)
+					}
+					if req.PostForm.Get("grant_type") == "refresh_token" {
+						sentRefreshForm = req.PostForm
+						return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(tt.refreshBody))}, nil
 					}
 					sentForm = req.PostForm
 					return &http.Response{StatusCode: tt.tokenCode, Body: io.NopCloser(strings.NewReader(tt.tokenBody))}, nil
@@ -242,6 +270,9 @@ func TestHandleCallback(t *testing.T) {
 			}
 			if sentUserInfo != tt.wantUserInfo {
 				t.Errorf("UserInfo request = %+v, want %+v", sentUserInfo, tt.wantUserInfo)
+			}
+			if !reflect.DeepEqual(sentRefreshForm, tt.wantRefreshForm) {
+				t.Error("unexpected refresh token request form")
 			}
 			if !reflect.DeepEqual(sentForm, tt.wantForm) {
 				t.Errorf("token request form = %v, want %v", sentForm, tt.wantForm)
