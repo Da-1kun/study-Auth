@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -51,5 +53,40 @@ func TestExchangeCodeResponse(t *testing.T) {
 				t.Errorf("tokens = %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRefreshAccessToken(t *testing.T) {
+	wantForm := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {"test-refresh"},
+		"client_id":     {"test-client"},
+		"client_secret": {"test-secret"},
+	}
+	a := &app{
+		cfg: Config{ClientID: "test-client", ClientSecret: "test-secret"},
+		googleClient: &http.Client{Transport: tokenRoundTripper(func(req *http.Request) (*http.Response, error) {
+			defer req.Body.Close()
+			if req.Method != http.MethodPost || req.URL.String() != "https://oauth2.googleapis.com/token" {
+				t.Fatalf("unexpected request: %s %s", req.Method, req.URL)
+			}
+			if err := req.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(req.PostForm, wantForm) {
+				t.Fatal("unexpected refresh request form")
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","expires_in":3599}`)),
+			}, nil
+		})},
+	}
+	got, err := a.refreshAccessToken(context.Background(), "test-refresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (tokenResponse{AccessToken: "new-access", ExpiresIn: 3599}); got != want {
+		t.Error("unexpected refresh response")
 	}
 }

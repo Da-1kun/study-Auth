@@ -31,6 +31,19 @@ func (a *app) exchangeCode(ctx context.Context, code, verifier string) (tokenRes
 		"client_secret": {a.cfg.ClientSecret},
 		"code_verifier": {verifier},
 	}
+	return a.requestTokens(ctx, form)
+}
+
+func (a *app) refreshAccessToken(ctx context.Context, refreshToken string) (tokenResponse, error) {
+	return a.requestTokens(ctx, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {a.cfg.ClientID},
+		"client_secret": {a.cfg.ClientSecret},
+	})
+}
+
+func (a *app) requestTokens(ctx context.Context, form url.Values) (tokenResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, googleTokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return tokenResponse{}, err
@@ -38,8 +51,10 @@ func (a *app) exchangeCode(ctx context.Context, code, verifier string) (tokenRes
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	// リクエスト本文はエンコード済みなので、以降の form の変更は送信内容に影響しない。
-	for _, key := range []string{"code", "client_secret", "code_verifier"} {
-		form.Set(key, "[redacted]")
+	for _, key := range []string{"code", "client_secret", "code_verifier", "refresh_token"} {
+		if form.Has(key) {
+			form.Set(key, "[redacted]")
+		}
 	}
 	if dump, err := httputil.DumpRequestOut(req, false); err == nil {
 		log.Printf("   [token] request\n%s%s", dump, form.Encode())
