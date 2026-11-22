@@ -114,10 +114,10 @@ sequenceDiagram
 
 Google へのリダイレクトを試す段階で、以下の設定を行う。`REDIRECT_URI` は Google 側に登録した URI と完全に一致させる。
 
-- [ ] Google Cloud Console で OAuth 同意画面を設定（外部 / テストユーザーに自分を追加）
-- [ ] 「OAuth 2.0 クライアント ID（ウェブ アプリケーション）」を作成
-- [ ] 承認済みのリダイレクト URI に `http://localhost:8080/callback` を登録
-- [ ] `.env` に `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `REDIRECT_URI` を置く（`.env` は commit しない）
+- [x] Google Cloud Console で OAuth 同意画面を設定（外部 / テストユーザーに自分を追加）
+- [x] 「OAuth 2.0 クライアント ID（ウェブ アプリケーション）」を作成
+- [x] 承認済みのリダイレクト URI に `http://localhost:8080/callback` を登録
+- [x] `.env` に `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `REDIRECT_URI` を置く（`.env` は commit しない）
 - [x] `go mod init` して `net/http` だけで `/` を返す最小サーバを起動する
 
 観察: Discovery ドキュメントを開き、上の表の URL が載っていることを確認する。
