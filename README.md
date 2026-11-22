@@ -24,8 +24,9 @@ make run
 
 ## 最終的なアウトプット（全体像）
 
-ブラウザ・自作アプリ・Google の 3 者間で流れる通信の全体図。矢印の `[Step N]` が README 下部のステップに対応する。
-以下の通信図と観察項目は Step 6 まで実装した時点のもの。
+ブラウザ・自作アプリ・Google の間の通信を、初回ログインとログイン後のトークン更新に分けて示す。図中の `[Step N]` は README 下部のステップに対応する。
+
+### Google ログインとプロフィール表示（Step 1〜6）
 
 ```mermaid
 sequenceDiagram
@@ -71,6 +72,35 @@ sequenceDiagram
     A-->>B: 303 Location: /、sid Cookie を削除
 ```
 
+### ログイン後のアクセストークン更新（Step 8 の実装予定）
+
+Step 8 では、上の図の `/login` が返す Google の認可 URL に `access_type=offline` を追加する。認可コード交換のレスポンスに `refresh_token` が含まれていれば、ログインの検証を終えてからサーバ側に保存する。同じユーザーの保存済みの値は、レスポンスで省略された場合も保持する。
+
+下の図は、ログイン後に自作アプリが Google API を呼ぶ場合の流れ。`/profile` はセッションに保存した名前とメールアドレスを表示するため、表示時にトークンを更新する必要はない。
+
+```mermaid
+sequenceDiagram
+    participant A as 自作アプリ
+    participant T as Google /token
+    participant G as Google API
+
+    Note over A: Google API を呼ぶ前にアクセストークンの期限を確認
+    opt アクセストークンが期限切れ
+        A->>T: POST /token<br/>grant_type=refresh_token&refresh_token<br/>&client_id&client_secret
+        alt 更新成功
+            T-->>A: access_token, expires_in（refresh_token は省略されることがある）
+            Note over A: 新しいアクセストークンと有効期限を保存<br/>refresh_token が返った場合は保存値を更新
+        else invalid_grant
+            T-->>A: 更新拒否
+            Note over A: 保存済みの refresh_token を破棄し、再認可を案内
+        end
+    end
+    opt 有効なアクセストークンがある
+        A->>G: API リクエスト（Authorization: Bearer access_token）
+        G-->>A: API レスポンス
+    end
+```
+
 ### どこで何を観察するか
 
 | 見る場所 | 観察できるもの | Step |
@@ -82,6 +112,8 @@ sequenceDiagram
 | サーバーログ | JWKS 取得、デコードした header / claims、検証結果 | 5 |
 | サーバーログ | userinfo への Bearer 付き GET、HTTP ステータス、`sub` の照合結果 | 6 |
 | ブラウザ: `/profile` | 名前とメールアドレス | 6 |
+| Network タブ: `/login` のレスポンス | Google の認可 URL に付く `access_type=offline` | 8（予定） |
+| テスト / サーバーログ | 期限切れ時の `grant_type=refresh_token` による更新と、その後の Google API 呼び出し。ログではトークンとシークレットの値を伏せる | 8（予定） |
 
 ## 実装要件（縛り）
 
@@ -189,9 +221,22 @@ Google へのリダイレクトを試す段階で、以下の設定を行う。`
 
 ### Step 7: 振り返り
 
-- [ ] state / PKCE / nonce がそれぞれどの攻撃を防ぐかを自分の言葉で書く
-- [ ] Implicit Flow（`response_type=token`）が非推奨になった理由を説明できる
-- [ ] 本番で追加で必要になること（JWKS キャッシュ、セッションの永続化、HTTPS/`Secure` Cookie、refresh_token）を列挙する
+- [x] state / PKCE / nonce がそれぞれどの攻撃を防ぐかを自分の言葉で書く
+- [x] Implicit Flow（`response_type=token`）が非推奨になった理由を説明できる
+- [x] 本番で追加で必要になること（JWKS キャッシュ、セッションの永続化、HTTPS/`Secure` Cookie、refresh_token）を列挙する
+
+### Step 8: refresh_token でアクセストークンを更新する
+
+Google API をログイン後も呼ぶ場合に備えて、アクセストークンを更新する流れを実装する。アプリのログイン状態は Step 6 のセッションで管理する。
+
+- [ ] `/login` の `handleLogin` で Google の認可 URL に `access_type=offline` を追加する
+- [ ] 認可コード交換時の `tokenResponse` に `refresh_token` を追加し、検証済みのログインに紐づけてサーバ側に保存する。Google が返さない場合は、同じユーザーの保存済みトークンがあれば保持する
+- [ ] Google の `/token` に `grant_type=refresh_token`, `refresh_token`, `client_id`, `client_secret` をフォームで POST し、新しい `access_token` と `expires_in` を受け取る
+- [ ] `expires_in` からアクセストークンの有効期限を管理し、Google API を呼ぶときに期限切れなら更新する。更新レスポンスに新しい `refresh_token` があれば保存し直す
+- [ ] `invalid_grant` で更新を拒否されたら保存済みの `refresh_token` を破棄し、Google API を再び使うための認可フローを案内する。一時的な通信エラーの場合は保存済みの値を保持する
+- [ ] テーブル駆動テストで、更新成功、`refresh_token` が省略された場合、更新拒否、一時的な通信エラーを確認する
+
+観察（Network タブ / サーバーログ）: `/login` の `Location` に `access_type=offline` が付くことを確認する。テストでアクセストークンを期限切れにし、Google API の呼び出し前にサーバ側から `grant_type=refresh_token` のリクエストが送られることを確認する。ログを使う場合は各トークンと `client_secret` の値を伏せる。
 
 ## 参考仕様
 
