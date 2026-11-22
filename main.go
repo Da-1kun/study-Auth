@@ -93,6 +93,8 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"code_challenge":        {codeChallenge(sess.CodeVerifier)},
 		"code_challenge_method": {"S256"},
 	}
+	// refresh_token の受け取りを再同意で確認するときに有効化する。
+	// query.Set("prompt", "consent")
 	http.Redirect(w, r, googleAuthorizeURL+"?"+query.Encode(), http.StatusFound)
 }
 
