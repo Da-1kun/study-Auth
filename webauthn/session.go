@@ -65,9 +65,12 @@ func (s *sessionStore) issueChallenge(w http.ResponseWriter, r *http.Request, op
 	s.mu.Unlock()
 
 	http.SetCookie(w, &http.Cookie{
-		Name:  sessionCookieName,
-		Value: id,
-		Path:  "/",
+		Name:     sessionCookieName,
+		Value:    id,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
 	})
 	return value
 }
