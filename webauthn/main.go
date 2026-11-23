@@ -1,7 +1,7 @@
 package main
 
 import (
-	"io"
+	_ "embed"
 	"log"
 	"net/http"
 )
@@ -14,14 +14,17 @@ const (
 	demoUserHandle = "JuLm0T637Y1GQxrSuJOMvp17YFn8kO0FcxYkK-lIwQw"
 )
 
+//go:embed index.html
+var indexHTML []byte
+
 func main() {
 	sessions := &sessionStore{sessions: make(map[string]pendingChallenge)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /register/options", sessions.handleRegistrationOptions)
 	mux.HandleFunc("POST /register/finish", sessions.handleRegistrationFinish)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		io.WriteString(w, "WebAuthn 学習用サーバー\n")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(indexHTML)
 	})
 
 	const addr = "localhost:8081"

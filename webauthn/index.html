@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebAuthn 学習用サーバー</title>
+</head>
+<body>
+  <h1>WebAuthn 学習用サーバー</h1>
+  <button type="button" id="register">パスキーを作成</button>
+  <p id="status" role="status"></p>
+
+  <script>
+    const registerButton = document.querySelector("#register");
+    const status = document.querySelector("#status");
+
+    function decodeBase64URL(value) {
+      const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+      return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    }
+
+    registerButton.addEventListener("click", async () => {
+      registerButton.disabled = true;
+      status.textContent = "パスキーを作成しています。";
+      try {
+        const response = await fetch("/register/options", { method: "POST" });
+        if (!response.ok) {
+          throw new Error(`登録オプションの取得に失敗しました（HTTP ${response.status}）。`);
+        }
+
+        const publicKey = await response.json();
+        publicKey.challenge = decodeBase64URL(publicKey.challenge);
+        publicKey.user.id = decodeBase64URL(publicKey.user.id);
+        for (const credential of publicKey.excludeCredentials) {
+          credential.id = decodeBase64URL(credential.id);
+        }
+
+        await navigator.credentials.create({ publicKey });
+        status.textContent = "認証器がパスキーを作成しました。";
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        registerButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

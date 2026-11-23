@@ -10,7 +10,7 @@ Step 0 の最小サーバーを起動するには、Go 1.26.2 以上でリポジ
 go run ./webauthn
 ```
 
-ブラウザで `http://localhost:8081` を開くと「WebAuthn 学習用サーバー」と表示される。WebAuthn はセキュアコンテキストで利用でき、ローカル開発では `http://localhost` を使える。この課題では期待する origin を `http://localhost:8081`、RP ID を `localhost` に固定する。アクセスする URL もこの設定にそろえる。リポジトリの `make run` は OIDC 用で、`make test` はリポジトリ全体の Go テストを実行する。
+ブラウザで `http://localhost:8081` を開くと「パスキーを作成」ボタンが表示される。WebAuthn はセキュアコンテキストで利用でき、ローカル開発では `http://localhost` を使える。この課題では期待する origin を `http://localhost:8081`、RP ID を `localhost` に固定する。アクセスする URL もこの設定にそろえる。リポジトリの `make run` は OIDC 用で、`make test` はリポジトリ全体の Go テストを実行する。
 
 Step 6 までの実装後は、学習用の固定アカウントで「パスキーを登録」を選び、認証器の案内に従う。続けて「パスキーでログイン」を選び、プロフィールが表示されることを確認する。端末のパスキーが使えない場合は、ブラウザの開発者ツールが提供する仮想認証器でも試せる。
 
@@ -111,14 +111,14 @@ sequenceDiagram
 
 - [x] `POST /register/options` で `rp`、`user`、`challenge`、`pubKeyCredParams`（`alg: -7`）を返す
 - [x] `authenticatorSelection` で `residentKey: "required"` と `userVerification: "required"` を指定する。登録済み ID は `excludeCredentials` に入れる
-- [ ] `challenge`、`user.id`、`excludeCredentials[].id` をバイト列に変換し、`navigator.credentials.create({ publicKey })` を呼ぶ
+- [x] `challenge`、`user.id`、`excludeCredentials[].id` をバイト列に変換し、`navigator.credentials.create({ publicKey })` を呼ぶ
 - [ ] `rawId`、`clientDataJSON`、`attestationObject` を base64url で `POST /register/finish` に送る。認証器の操作がキャンセルされたら画面に結果を表示する
 
 現在は `curl -sS -X POST http://localhost:8081/register/options` で、`rp.id` が `localhost`、`user.name` が `demo`、`pubKeyCredParams` が `[{"type":"public-key","alg":-7}]` になることを確認できる。`challenge` と `user.id` はパディングなしの base64url で返る。
 
 `authenticatorSelection` で、認証器がアカウントを選べる資格情報と、PIN や生体認証などによるユーザー確認を要求する。`excludeCredentials` には同じアカウントの登録済み credential ID が入る。登録データを保存する Step 3 までは、起動したサーバーは空配列を返す。
 
-ブラウザ API の呼び出しを実装したら、生成した challenge が `clientDataJSON.challenge` にどう入るかを確認する。
+「パスキーを作成」を押すと、Network タブの `/register/options` のレスポンスに base64url の値が表示される。ブラウザはそれを `Uint8Array` に変換してから認証器に作成を要求する。作成結果のサーバー送信は次のチェック項目で実装し、そのときに `clientDataJSON.challenge` が発行値と一致するか確認する。
 
 ### Step 3 — 登録レスポンスの検証と公開鍵の保存
 
