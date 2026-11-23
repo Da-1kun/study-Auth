@@ -155,6 +155,7 @@ func TestRegistrationFinishClientData(t *testing.T) {
 		want int
 	}{
 		{"valid client data", registrationFinishBody(valid), http.StatusNoContent},
+		{"short authData header", strings.Replace(registrationFinishBody(valid), registrationAttestationFixture, "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YUEB", 1), http.StatusBadRequest},
 		{"missing attestation object", fmt.Sprintf(`{"response":{"clientDataJSON":%q}}`, base64.RawURLEncoding.EncodeToString([]byte(valid))), http.StatusBadRequest},
 		{"missing body", "", http.StatusBadRequest},
 		{"trailing JSON", registrationFinishBody(valid) + "{}", http.StatusBadRequest},
@@ -185,9 +186,10 @@ func TestRegistrationFinishClientData(t *testing.T) {
 	}
 }
 
+// CBOR の none attestation。authData は localhost の RP ID ハッシュ、UP・UV・AT、signCount 0。
+const registrationAttestationFixture = "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVglSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAA"
+
 func registrationFinishBody(clientData string) string {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(clientData))
-	// CBOR の {"fmt":"none","attStmt":{},"authData":h'01'} を base64url で表す。
-	const attestation = "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YUEB"
-	return fmt.Sprintf(`{"response":{"clientDataJSON":%q,"attestationObject":%q}}`, encoded, attestation)
+	return fmt.Sprintf(`{"response":{"clientDataJSON":%q,"attestationObject":%q}}`, encoded, registrationAttestationFixture)
 }

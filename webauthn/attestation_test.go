@@ -7,7 +7,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
-func TestVerifyNoneAttestation(t *testing.T) {
+func TestParseNoneAttestation(t *testing.T) {
 	tests := []struct {
 		name   string
 		format any
@@ -31,9 +31,9 @@ func TestVerifyNoneAttestation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = verifyNoneAttestation(base64.RawURLEncoding.EncodeToString(data))
+			_, err = parseNoneAttestation(base64.RawURLEncoding.EncodeToString(data))
 			if (err == nil) != tt.valid {
-				t.Errorf("verifyNoneAttestation() error = %v, valid = %t", err, tt.valid)
+				t.Errorf("parseNoneAttestation() error = %v, valid = %t", err, tt.valid)
 			}
 		})
 	}

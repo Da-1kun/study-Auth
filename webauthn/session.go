@@ -147,12 +147,17 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if err := verifyNoneAttestation(credential.Response.AttestationObject); err != nil {
+	authData, err := parseNoneAttestation(credential.Response.AttestationObject)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := verifyRegistrationAuthenticatorData(authData); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// authData の内容の検証と公開鍵の保存は後続の項目で追加する。
+	// credential ID と公開鍵の検証・保存は後続の項目で追加する。
 	w.WriteHeader(http.StatusNoContent)
 }
 
