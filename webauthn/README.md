@@ -112,13 +112,13 @@ sequenceDiagram
 - [x] `POST /register/options` で `rp`、`user`、`challenge`、`pubKeyCredParams`（`alg: -7`）を返す
 - [x] `authenticatorSelection` で `residentKey: "required"` と `userVerification: "required"` を指定する。登録済み ID は `excludeCredentials` に入れる
 - [x] `challenge`、`user.id`、`excludeCredentials[].id` をバイト列に変換し、`navigator.credentials.create({ publicKey })` を呼ぶ
-- [ ] `rawId`、`clientDataJSON`、`attestationObject` を base64url で `POST /register/finish` に送る。認証器の操作がキャンセルされたら画面に結果を表示する
+- [x] `rawId`、`clientDataJSON`、`attestationObject` を base64url で `POST /register/finish` に送る。認証器の操作がキャンセルされたら画面に結果を表示する
 
 現在は `curl -sS -X POST http://localhost:8081/register/options` で、`rp.id` が `localhost`、`user.name` が `demo`、`pubKeyCredParams` が `[{"type":"public-key","alg":-7}]` になることを確認できる。`challenge` と `user.id` はパディングなしの base64url で返る。
 
 `authenticatorSelection` で、認証器がアカウントを選べる資格情報と、PIN や生体認証などによるユーザー確認を要求する。`excludeCredentials` には同じアカウントの登録済み credential ID が入る。登録データを保存する Step 3 までは、起動したサーバーは空配列を返す。
 
-「パスキーを作成」を押すと、Network タブの `/register/options` のレスポンスに base64url の値が表示される。ブラウザはそれを `Uint8Array` に変換してから認証器に作成を要求する。作成結果のサーバー送信は次のチェック項目で実装し、そのときに `clientDataJSON.challenge` が発行値と一致するか確認する。
+「パスキーを作成」を押すと、Network タブの `/register/options` のレスポンスに base64url の値が表示される。ブラウザはそれを `Uint8Array` に変換してから認証器に作成を要求する。作成後は `/register/finish` の Payload に `rawId`、`response.clientDataJSON`、`response.attestationObject` が表示される。base64url をデコードした `clientDataJSON` の `challenge` を発行値と見比べる。認証器の操作をキャンセルすると、画面に案内が表示される。
 
 ### Step 3 — 登録レスポンスの検証と公開鍵の保存
 
