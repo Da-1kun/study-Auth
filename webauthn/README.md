@@ -105,7 +105,7 @@ sequenceDiagram
 
 ローカル HTTP のレスポンスでは `Set-Cookie` に `HttpOnly` と `SameSite=Lax` が付くことを確認する。
 
-`/register/options` が発行した Cookie を付けて `POST /register/finish` を呼ぶと、初回は challenge を消費して `204 No Content` を返す。同じ Cookie で再度呼ぶと `400 Bad Request` を返す。この段階の `204` は challenge の消費を示す。登録レスポンスの検証と公開鍵の保存は Step 3 で行う。
+Step 1 の時点では、`/register/options` が発行した Cookie を付けて `POST /register/finish` を呼ぶと、初回は challenge を消費して `204 No Content`、再送では `400 Bad Request` が返る。Step 3 では `204` を返す前に登録レスポンスも検証する。
 
 ### Step 2 — 登録オプションとブラウザ API
 
@@ -122,13 +122,15 @@ sequenceDiagram
 
 ### Step 3 — 登録レスポンスの検証と公開鍵の保存
 
-- [ ] `clientDataJSON` を読み、`type == "webauthn.create"`、challenge、origin を照合する。この課題ではクロスオリジンの呼び出しを拒否する
+- [x] `clientDataJSON` を読み、`type == "webauthn.create"`、challenge、origin を照合する。この課題ではクロスオリジンの呼び出しを拒否する
 - [ ] CBOR の `attestationObject` を読み、`fmt == "none"`、空の `attStmt` を確認する。この方針で受け入れたデータから認証器の機種や信頼性は判定できない
 - [ ] `authData` を解析し、`rpIdHash == SHA256(RP ID)`、UP（User Present）、UV（User Verified）、AT（Attested Credential Data）を確認する
 - [ ] 埋め込まれた credential ID と `rawId` の一致を確認する。COSE_Key の鍵種別・アルゴリズム・曲線と点の座標を検証し、P-256 の公開鍵として扱う
 - [ ] credential ID の重複を拒否し、検証済みの ID、公開鍵、署名カウンター、バックアップ適格性を登録対象アカウントと紐づけて保存する
 
 理解したいことは、`origin` がスキームとポートを含むページの出所を表し、`rpIdHash` が認証器の資格情報のスコープを表す点。
+
+Network タブで `/register/finish` のステータスを確認する。現在の `204 No Content` は challenge の消費と `clientDataJSON` の検証が成功したことを示す。本文が空の場合や、challenge または origin が一致しない場合は `400 Bad Request` が返る。
 
 ### Step 4 — 認証オプションと assertion の取得
 

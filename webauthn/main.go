@@ -8,6 +8,8 @@ import (
 
 const (
 	demoUsername = "demo"
+	listenAddr   = rpID + ":8081"
+	rpOrigin     = "http://" + listenAddr
 
 	// demoUserHandle は一度生成した 32 バイトの乱数を base64url で表した値。
 	// 固定アカウントの user.id として、サーバー再起動後も同じ値を使う。
@@ -27,7 +29,6 @@ func main() {
 		w.Write(indexHTML)
 	})
 
-	const addr = "localhost:8081"
-	log.Printf("Listening on http://%s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Printf("Listening on %s", rpOrigin)
+	log.Fatal(http.ListenAndServe(listenAddr, mux))
 }

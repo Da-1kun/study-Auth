@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -116,9 +119,10 @@ func TestRegistrationFinish(t *testing.T) {
 			}
 
 			statuses := make(chan int, len(tt.wantStatuses))
+			body := registrationFinishBody(fmt.Sprintf(`{"type":"webauthn.create","challenge":%q,"origin":%q}`, store.sessions[sessionID].value, rpOrigin))
 			for range tt.wantStatuses {
 				go func() {
-					request := httptest.NewRequest(http.MethodPost, "/register/finish", nil)
+					request := httptest.NewRequest(http.MethodPost, "/register/finish", strings.NewReader(body))
 					if sessionID != "" {
 						request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionID})
 					}
@@ -141,4 +145,46 @@ func TestRegistrationFinish(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRegistrationFinishClientData(t *testing.T) {
+	const valid = `{"type":"webauthn.create","challenge":"AQID","origin":"http://localhost:8081","crossOrigin":false}`
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"valid client data", registrationFinishBody(valid), http.StatusNoContent},
+		{"missing body", "", http.StatusBadRequest},
+		{"trailing JSON", registrationFinishBody(valid) + "{}", http.StatusBadRequest},
+		{"invalid base64url", `{"response":{"clientDataJSON":"!"}}`, http.StatusBadRequest},
+		{"invalid client data JSON", registrationFinishBody("{"), http.StatusBadRequest},
+		{"wrong type", registrationFinishBody(strings.Replace(valid, "webauthn.create", "webauthn.get", 1)), http.StatusBadRequest},
+		{"wrong challenge", registrationFinishBody(strings.Replace(valid, "AQID", "BAUG", 1)), http.StatusBadRequest},
+		{"wrong origin", registrationFinishBody(strings.Replace(valid, "8081", "8080", 1)), http.StatusBadRequest},
+		{"cross origin", registrationFinishBody(strings.Replace(valid, "false", "true", 1)), http.StatusBadRequest},
+		{"unexpected top origin", registrationFinishBody(strings.TrimSuffix(valid, "}") + `,"topOrigin":"http://localhost:8080"}`), http.StatusBadRequest},
+		{"oversized body", registrationFinishBody(valid) + strings.Repeat(" ", 64<<10), http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const sessionID = "registration"
+			store := &sessionStore{sessions: map[string]pendingChallenge{
+				sessionID: {value: "AQID", operation: registerOperation, expiresAt: time.Now().Add(time.Minute)},
+			}}
+			request := httptest.NewRequest(http.MethodPost, "/register/finish", strings.NewReader(tt.body))
+			request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionID})
+			response := httptest.NewRecorder()
+			store.handleRegistrationFinish(response, request)
+			if response.Code != tt.want {
+				t.Errorf("status = %d, want %d", response.Code, tt.want)
+			}
+		})
+	}
+}
+
+func registrationFinishBody(clientData string) string {
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(clientData))
+	return fmt.Sprintf(`{"response":{"clientDataJSON":%q}}`, encoded)
 }

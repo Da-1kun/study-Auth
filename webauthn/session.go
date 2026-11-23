@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -98,11 +99,52 @@ func (s *sessionStore) excludedCredentials(userHandle string) []credentialDescri
 }
 
 func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.consumeChallenge(r, registerOperation); !ok {
+	pending, ok := s.consumeChallenge(r, registerOperation)
+	if !ok {
 		http.Error(w, "no valid registration challenge", http.StatusBadRequest)
 		return
 	}
-	// 登録レスポンスの検証は Step 3 で追加する。
+
+	const maxRegistrationBody = 64 << 10
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRegistrationBody))
+	if err != nil {
+		http.Error(w, "could not read registration response", http.StatusBadRequest)
+		return
+	}
+	var credential struct {
+		Response struct {
+			ClientDataJSON string `json:"clientDataJSON"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(body, &credential); err != nil {
+		http.Error(w, "invalid registration response JSON", http.StatusBadRequest)
+		return
+	}
+
+	rawClientData, err := base64.RawURLEncoding.Strict().DecodeString(credential.Response.ClientDataJSON)
+	if err != nil {
+		http.Error(w, "invalid clientDataJSON encoding", http.StatusBadRequest)
+		return
+	}
+	var clientData struct {
+		Type        string `json:"type"`
+		Challenge   string `json:"challenge"`
+		Origin      string `json:"origin"`
+		CrossOrigin bool   `json:"crossOrigin"`
+		TopOrigin   string `json:"topOrigin"`
+	}
+	if err := json.Unmarshal(rawClientData, &clientData); err != nil {
+		http.Error(w, "invalid clientDataJSON", http.StatusBadRequest)
+		return
+	}
+	if clientData.Type != "webauthn.create" || clientData.Challenge != pending.value ||
+		clientData.Origin != rpOrigin || clientData.CrossOrigin ||
+		(clientData.TopOrigin != "" && clientData.TopOrigin != rpOrigin) {
+		http.Error(w, "unexpected registration client data", http.StatusBadRequest)
+		return
+	}
+
+	// attestationObject の検証と公開鍵の保存は後続の項目で追加する。
 	w.WriteHeader(http.StatusNoContent)
 }
 
