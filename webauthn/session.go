@@ -39,6 +39,7 @@ type registrationOptions struct {
 	PubKeyCredParams       []credentialParameter  `json:"pubKeyCredParams"`
 	AuthenticatorSelection authenticatorSelection `json:"authenticatorSelection"`
 	ExcludeCredentials     []credentialDescriptor `json:"excludeCredentials"`
+	Attestation            string                 `json:"attestation"`
 }
 
 type relyingParty struct {
@@ -83,6 +84,7 @@ func (s *sessionStore) handleRegistrationOptions(w http.ResponseWriter, r *http.
 			UserVerification: "required",
 		},
 		ExcludeCredentials: s.excludedCredentials(demoUserHandle),
+		Attestation:        "none",
 	})
 }
 
@@ -113,7 +115,8 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 	}
 	var credential struct {
 		Response struct {
-			ClientDataJSON string `json:"clientDataJSON"`
+			ClientDataJSON    string `json:"clientDataJSON"`
+			AttestationObject string `json:"attestationObject"`
 		} `json:"response"`
 	}
 	if err := json.Unmarshal(body, &credential); err != nil {
@@ -144,7 +147,12 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// attestationObject の検証と公開鍵の保存は後続の項目で追加する。
+	if err := verifyNoneAttestation(credential.Response.AttestationObject); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// authData の内容の検証と公開鍵の保存は後続の項目で追加する。
 	w.WriteHeader(http.StatusNoContent)
 }
 
