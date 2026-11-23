@@ -109,12 +109,14 @@ sequenceDiagram
 
 ### Step 2 — 登録オプションとブラウザ API
 
-- [ ] `POST /register/options` で `rp`、`user`、`challenge`、`pubKeyCredParams`（`alg: -7`）を返す
+- [x] `POST /register/options` で `rp`、`user`、`challenge`、`pubKeyCredParams`（`alg: -7`）を返す
 - [ ] `authenticatorSelection` で `residentKey: "required"` と `userVerification: "required"` を指定する。登録済み ID は `excludeCredentials` に入れる
 - [ ] `challenge`、`user.id`、`excludeCredentials[].id` をバイト列に変換し、`navigator.credentials.create({ publicKey })` を呼ぶ
 - [ ] `rawId`、`clientDataJSON`、`attestationObject` を base64url で `POST /register/finish` に送る。認証器の操作がキャンセルされたら画面に結果を表示する
 
-観察では、生成した challenge が `clientDataJSON.challenge` にどう入るかを確認する。
+現在は `curl -sS -X POST http://localhost:8081/register/options` で、`rp.id` が `localhost`、`user.name` が `demo`、`pubKeyCredParams` が `[{"type":"public-key","alg":-7}]` になることを確認できる。`challenge` と `user.id` はパディングなしの base64url で返る。
+
+ブラウザ API の呼び出しを実装したら、生成した challenge が `clientDataJSON.challenge` にどう入るかを確認する。
 
 ### Step 3 — 登録レスポンスの検証と公開鍵の保存
 

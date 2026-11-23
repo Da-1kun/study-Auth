@@ -13,6 +13,8 @@ const (
 	sessionCookieName = "webauthn_sid"
 	challengeLifetime = 5 * time.Minute
 	registerOperation = "register"
+	rpID              = "localhost"
+	es256Algorithm    = -7
 )
 
 type pendingChallenge struct {
@@ -28,13 +30,41 @@ type sessionStore struct {
 	sessions map[string]pendingChallenge
 }
 
+type registrationOptions struct {
+	RP               relyingParty          `json:"rp"`
+	User             registrationUser      `json:"user"`
+	Challenge        string                `json:"challenge"`
+	PubKeyCredParams []credentialParameter `json:"pubKeyCredParams"`
+}
+
+type relyingParty struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type registrationUser struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
+}
+
+type credentialParameter struct {
+	Type string `json:"type"`
+	Alg  int    `json:"alg"`
+}
+
 func (s *sessionStore) handleRegistrationOptions(w http.ResponseWriter, r *http.Request) {
 	challenge := s.issueChallenge(w, r, registerOperation, demoUserHandle)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	json.NewEncoder(w).Encode(struct {
-		Challenge string `json:"challenge"`
-	}{Challenge: challenge})
+	json.NewEncoder(w).Encode(registrationOptions{
+		RP:        relyingParty{ID: rpID, Name: "study-Auth"},
+		User:      registrationUser{ID: demoUserHandle, Name: demoUsername, DisplayName: demoUsername},
+		Challenge: challenge,
+		PubKeyCredParams: []credentialParameter{
+			{Type: "public-key", Alg: es256Algorithm},
+		},
+	})
 }
 
 func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.Request) {
