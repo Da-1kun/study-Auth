@@ -1,12 +1,64 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
 )
+
+func TestRegistrationOptionsAuthenticatorSelection(t *testing.T) {
+	credential := credentialDescriptor{Type: "public-key", ID: "AQID"}
+	tests := []struct {
+		name        string
+		idsByUser   map[string][]string
+		wantExclude []credentialDescriptor
+	}{
+		{
+			name:        "no registered credentials",
+			wantExclude: []credentialDescriptor{},
+		},
+		{
+			name: "only credentials belonging to the registration account",
+			idsByUser: map[string][]string{
+				demoUserHandle: {credential.ID},
+				"another-user": {"BAUG"},
+			},
+			wantExclude: []credentialDescriptor{credential},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &sessionStore{
+				sessions:                  make(map[string]pendingChallenge),
+				credentialIDsByUserHandle: tt.idsByUser,
+			}
+			response := httptest.NewRecorder()
+			store.handleRegistrationOptions(response, httptest.NewRequest(http.MethodPost, "/register/options", nil))
+
+			var options struct {
+				AuthenticatorSelection struct {
+					ResidentKey      string `json:"residentKey"`
+					UserVerification string `json:"userVerification"`
+				} `json:"authenticatorSelection"`
+				ExcludeCredentials []credentialDescriptor `json:"excludeCredentials"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &options); err != nil {
+				t.Fatal(err)
+			}
+			selection := options.AuthenticatorSelection
+			if selection.ResidentKey != "required" || selection.UserVerification != "required" {
+				t.Errorf("authenticator selection = %+v, want both fields required", selection)
+			}
+			if options.ExcludeCredentials == nil || !slices.Equal(options.ExcludeCredentials, tt.wantExclude) {
+				t.Errorf("excludeCredentials = %#v, want %#v", options.ExcludeCredentials, tt.wantExclude)
+			}
+		})
+	}
+}
 
 func TestRegistrationFinish(t *testing.T) {
 	tests := []struct {

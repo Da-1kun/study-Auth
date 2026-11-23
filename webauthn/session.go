@@ -26,15 +26,18 @@ type pendingChallenge struct {
 
 // sessionStore はセッション ID ごとに進行中の challenge を保持する。
 type sessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]pendingChallenge
+	mu                        sync.Mutex
+	sessions                  map[string]pendingChallenge
+	credentialIDsByUserHandle map[string][]string
 }
 
 type registrationOptions struct {
-	RP               relyingParty          `json:"rp"`
-	User             registrationUser      `json:"user"`
-	Challenge        string                `json:"challenge"`
-	PubKeyCredParams []credentialParameter `json:"pubKeyCredParams"`
+	RP                     relyingParty           `json:"rp"`
+	User                   registrationUser       `json:"user"`
+	Challenge              string                 `json:"challenge"`
+	PubKeyCredParams       []credentialParameter  `json:"pubKeyCredParams"`
+	AuthenticatorSelection authenticatorSelection `json:"authenticatorSelection"`
+	ExcludeCredentials     []credentialDescriptor `json:"excludeCredentials"`
 }
 
 type relyingParty struct {
@@ -53,6 +56,16 @@ type credentialParameter struct {
 	Alg  int    `json:"alg"`
 }
 
+type authenticatorSelection struct {
+	ResidentKey      string `json:"residentKey"`
+	UserVerification string `json:"userVerification"`
+}
+
+type credentialDescriptor struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
 func (s *sessionStore) handleRegistrationOptions(w http.ResponseWriter, r *http.Request) {
 	challenge := s.issueChallenge(w, r, registerOperation, demoUserHandle)
 	w.Header().Set("Content-Type", "application/json")
@@ -64,7 +77,24 @@ func (s *sessionStore) handleRegistrationOptions(w http.ResponseWriter, r *http.
 		PubKeyCredParams: []credentialParameter{
 			{Type: "public-key", Alg: es256Algorithm},
 		},
+		AuthenticatorSelection: authenticatorSelection{
+			ResidentKey:      "required",
+			UserVerification: "required",
+		},
+		ExcludeCredentials: s.excludedCredentials(demoUserHandle),
 	})
+}
+
+func (s *sessionStore) excludedCredentials(userHandle string) []credentialDescriptor {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ids := s.credentialIDsByUserHandle[userHandle]
+	credentials := make([]credentialDescriptor, 0, len(ids))
+	for _, id := range ids {
+		credentials = append(credentials, credentialDescriptor{Type: "public-key", ID: id})
+	}
+	return credentials
 }
 
 func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.Request) {
