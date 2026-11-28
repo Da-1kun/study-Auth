@@ -102,7 +102,7 @@ sequenceDiagram
 **理解したいこと**
 
 - Cookie のセッション ID と、サーバー側に保存する challenge の関係
-- 署名が有効な古い応答の再送を防ぐために、毎回新しい challenge を発行し、一度だけ使う理由
+- 毎回新しい challenge を発行し、一度だけ使う理由
 
 ### Step 2 — 登録オプションとブラウザ API
 
@@ -117,6 +117,11 @@ sequenceDiagram
 
 「パスキーを作成」を押すと、Network タブの `/register/options` のレスポンスに base64url の値が表示される。ブラウザはそれを `Uint8Array` に変換してから認証器に作成を要求する。作成後は `/register/finish` の Payload に `rawId`、`response.clientDataJSON`、`response.attestationObject` が表示される。base64url をデコードした `clientDataJSON` の `challenge` を発行値と見比べる。認証器の操作をキャンセルすると、画面に案内が表示される。
 
+**理解したいこと**
+
+- 登録時のサーバー、ブラウザ、認証器それぞれの役割
+- 登録時にどこで鍵ペアが作られ、秘密鍵と公開鍵がそれぞれどこで管理されるか
+
 ### Step 3 — 登録レスポンスの検証と公開鍵の保存
 
 - [x] `clientDataJSON` を読み、`type == "webauthn.create"`、challenge、origin を照合する。この課題ではクロスオリジンの呼び出しを拒否する
@@ -127,7 +132,9 @@ sequenceDiagram
 
 **理解したいこと**
 
-- ページの出所を表す `origin` と、資格情報が使える RP を表す `rpIdHash` の役割
+- `origin` と `rpIdHash` をそれぞれ検証する理由
+- UP と UV がそれぞれ何を示すか
+- `attestation: "none"` を選ぶと、サーバーが認証器について何を確認できるか
 - credential ID と公開鍵をアカウントに紐づけて保存する理由
 
 ### Step 4 — 認証オプションと assertion の取得
@@ -138,6 +145,11 @@ sequenceDiagram
 
 観察では、登録時と同じ credential ID が使われ、ログインのたびに新しい challenge と署名が返ることを確認する。
 
+**理解したいこと**
+
+- 認証に使うパスキーの選択に `allowCredentials` がどう関わるか
+- ログイン時に認証器が何を返し、サーバーが検証に使う公開鍵をどう特定するか
+
 ### Step 5 — assertion と署名の検証
 
 - [ ] `rawId` が対象アカウントに属し、今回の `allowCredentials` に含まれることを確認する。`userHandle` が返った場合は保存済みの値と照合する
@@ -147,7 +159,8 @@ sequenceDiagram
 
 **理解したいこと**
 
-- challenge と origin を含む `clientDataJSON` と、RP ID のハッシュを含む `authenticatorData` が、ひとつの署名で結び付けられる仕組み
+- ログイン時の署名対象に `clientDataJSON` のハッシュと `authenticatorData` を含める理由
+- 登録済みの公開鍵で署名を検証すると何が分かるか
 
 ### Step 6 — セッションとプロフィール
 
@@ -155,12 +168,17 @@ sequenceDiagram
 - [ ] `GET /profile` は認証済みセッションのユーザー名を表示し、未ログインならトップページへ戻す
 - [ ] `POST /logout` でセッションを破棄し、Cookie を削除する。ログアウト後に同じパスキーでログインできることを確認する
 
+**理解したいこと**
+
+- WebAuthn による認証と、アプリがセッションでログイン状態を維持することの関係
+
 ### Step 7 — テストと振り返り
 
 - [ ] 登録とログインの成功例に加え、期限切れ・再送・別セッション・別操作の challenge が拒否されることをテストする
 - [ ] origin / RP ID の不一致、UV がない応答、未知の credential ID、アカウントの不一致、署名不一致を拒否することをテストする
 - [ ] challenge、origin、RP ID、署名検証がそれぞれどんな役割を担うかを説明する
-- [ ] `allowCredentials` を省いたログインでは、返された credential ID と user handle でアカウントをどう特定・照合するかを考える
+- [ ] WebAuthn がフィッシングに強い理由を説明する
+- [ ] `allowCredentials` を省いた場合に、ログイン先のアカウントがどう決まるかを説明する
 
 ## 参考仕様
 
