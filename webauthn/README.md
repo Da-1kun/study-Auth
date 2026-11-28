@@ -99,13 +99,10 @@ sequenceDiagram
 - [x] Cookie に `HttpOnly`、`SameSite=Lax` を付ける。Go サーバーが HTTPS リクエストを直接受けた場合は `Secure` も付ける
 - [x] `finish` 側で対象セッションから有効な challenge を一度だけ取得できるようにする。取得と消費を同じロック内で行う
 
-理解したいことは、署名を正しく検証できても、古いログイン応答の再送を拒むには毎回新しい challenge が必要な理由。
+**理解したいこと**
 
-この段階では `curl -i -X POST http://localhost:8081/register/options` で、JSON の `challenge` と `Set-Cookie` を確認できる。Cookie にはセッション ID が入り、challenge は登録操作と `demo` の user handle に紐づけてサーバー側メモリに 5 分間保存する。有効なセッションで再度発行すると、前の challenge を置き換える。
-
-ローカル HTTP のレスポンスでは `Set-Cookie` に `HttpOnly` と `SameSite=Lax` が付くことを確認する。
-
-Step 1 の時点では、`/register/options` が発行した Cookie を付けて `POST /register/finish` を呼ぶと、初回は challenge を消費して `204 No Content`、再送では `400 Bad Request` が返る。Step 3 では `204` を返す前に登録レスポンスも検証する。
+- Cookie のセッション ID と、サーバー側に保存する challenge の関係
+- 署名が有効な古い応答の再送を防ぐために、毎回新しい challenge を発行し、一度だけ使う理由
 
 ### Step 2 — 登録オプションとブラウザ API
 
@@ -128,11 +125,10 @@ Step 1 の時点では、`/register/options` が発行した Cookie を付けて
 - [x] 埋め込まれた credential ID と `rawId` の一致を確認する。COSE_Key の鍵種別・アルゴリズム・曲線と点の座標を検証し、P-256 の公開鍵として扱う
 - [x] credential ID の重複を拒否し、検証済みの ID、公開鍵、署名カウンター、バックアップ適格性を登録対象アカウントと紐づけて保存する
 
-理解したいことは、`origin` がスキームとポートを含むページの出所を表し、`rpIdHash` が認証器の資格情報のスコープを表す点。
+**理解したいこと**
 
-Network タブで `/register/finish` のステータスを確認する。サーバーは `authData` の RP ID ハッシュとフラグを検証し、credential ID を `rawId` と照合して COSE_Key から公開鍵を読み取る。検証に失敗すると `400 Bad Request` が返る。検証済みの ID がすでに保存されている場合は `409 Conflict` が返る。
-
-`204 No Content` が返ったら、次の `/register/options` のレスポンスで、登録済み ID が `excludeCredentials` に入ることを確認する。ID、公開鍵、署名カウンター、バックアップ適格性（BE フラグ）は対象アカウントに紐づけてメモリに保存する。サーバーを再起動すると登録データは消える。
+- ページの出所を表す `origin` と、資格情報が使える RP を表す `rpIdHash` の役割
+- credential ID と公開鍵をアカウントに紐づけて保存する理由
 
 ### Step 4 — 認証オプションと assertion の取得
 
@@ -149,7 +145,9 @@ Network タブで `/register/finish` のステータスを確認する。サー�
 - [ ] 受信した生の `clientDataJSON` バイト列をハッシュし、`authenticatorData || SHA256(clientDataJSON)` を署名対象として組み立てる。ES256 ではその SHA-256 ダイジェストと登録済み公開鍵を使い、`ecdsa.VerifyASN1` で署名を検証する
 - [ ] 署名検証後に `signCount` を確認する。受信値が保存値より大きければ保存値を更新する。両方が 0 の場合はカウンターによる判定を行わない。それ以外で受信値が増えていない場合は異常のシグナルとして記録し、保存値を維持する
 
-理解したいことは、challenge と origin を含む `clientDataJSON` のハッシュと、RP ID を含む `authenticatorData` が、ひとつの署名で結び付けられる仕組み。
+**理解したいこと**
+
+- challenge と origin を含む `clientDataJSON` と、RP ID のハッシュを含む `authenticatorData` が、ひとつの署名で結び付けられる仕組み
 
 ### Step 6 — セッションとプロフィール
 
