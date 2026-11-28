@@ -40,11 +40,12 @@ type registeredCredential struct {
 	backupEligible bool
 }
 
-// sessionStore は進行中の challenge と登録済みの資格情報をメモリに保持する。
+// sessionStore は challenge、認証済みセッション、登録済みの資格情報をメモリに保持する。
 type sessionStore struct {
-	mu          sync.Mutex
-	sessions    map[string]pendingChallenge
-	credentials map[string]registeredCredential // キーはパディングなしの base64url credential ID
+	mu                    sync.Mutex
+	sessions              map[string]pendingChallenge
+	authenticatedSessions map[string]string               // セッション ID → user handle
+	credentials           map[string]registeredCredential // キーはパディングなしの base64url credential ID
 }
 
 type registrationOptions struct {
@@ -292,7 +293,26 @@ func (s *sessionStore) handleLoginFinish(w http.ResponseWriter, r *http.Request)
 	}
 
 	s.updateSignCount(id, authenticatorSignCount(authData))
+	s.completeLogin(w, r, credential.userHandle)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *sessionStore) completeLogin(w http.ResponseWriter, r *http.Request, userHandle string) {
+	id := randomToken()
+	previous, _ := r.Cookie(sessionCookieName)
+
+	s.mu.Lock()
+	if previous != nil {
+		delete(s.sessions, previous.Value)
+		delete(s.authenticatedSessions, previous.Value)
+	}
+	if s.authenticatedSessions == nil {
+		s.authenticatedSessions = make(map[string]string)
+	}
+	s.authenticatedSessions[id] = userHandle
+	s.mu.Unlock()
+
+	setSessionCookie(w, r, id)
 }
 
 func (s *sessionStore) updateSignCount(id string, received uint32) {
@@ -383,7 +403,9 @@ func (s *sessionStore) issueChallenge(w http.ResponseWriter, r *http.Request, pe
 		}
 	}
 	if cookie != nil {
-		if _, ok := s.sessions[cookie.Value]; ok {
+		_, hasChallenge := s.sessions[cookie.Value]
+		_, authenticated := s.authenticatedSessions[cookie.Value]
+		if hasChallenge || authenticated {
 			s.sessions[cookie.Value] = pending
 			s.mu.Unlock()
 			return pending.value
@@ -393,6 +415,11 @@ func (s *sessionStore) issueChallenge(w http.ResponseWriter, r *http.Request, pe
 	s.sessions[id] = pending
 	s.mu.Unlock()
 
+	setSessionCookie(w, r, id)
+	return pending.value
+}
+
+func setSessionCookie(w http.ResponseWriter, r *http.Request, id string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    id,
@@ -401,7 +428,6 @@ func (s *sessionStore) issueChallenge(w http.ResponseWriter, r *http.Request, pe
 		SameSite: http.SameSiteLaxMode,
 		Secure:   r.TLS != nil,
 	})
-	return pending.value
 }
 
 func randomToken() string {

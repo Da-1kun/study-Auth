@@ -111,7 +111,7 @@
         if (!finish.ok) {
           throw new Error(`認証応答の検証に失敗しました（HTTP ${finish.status}）。`);
         }
-        status.textContent = "認証応答の署名を検証しました。";
+        status.textContent = "ログインしました。";
       } catch (error) {
         status.textContent = error.name === "NotAllowedError"
           ? "パスキーの操作を完了できませんでした。ボタンからやり直せます。"

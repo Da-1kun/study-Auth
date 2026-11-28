@@ -250,6 +250,7 @@ func TestLoginFinishSignature(t *testing.T) {
 				credentials: map[string]registeredCredential{
 					"AQID": {userHandle: demoUserHandle, publicKey: &privateKey.PublicKey},
 				},
+				authenticatedSessions: map[string]string{sessionID: demoUserHandle},
 			}
 			body := loginFinishBody(t, "AQID", "", tt.clientData, tt.authData, tt.signature)
 			request := httptest.NewRequest(http.MethodPost, "/login/finish", strings.NewReader(body))
@@ -259,8 +260,20 @@ func TestLoginFinishSignature(t *testing.T) {
 			if response.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d, body = %q", response.Code, tt.wantStatus, response.Body.String())
 			}
-			if response.Header().Get("Set-Cookie") != "" {
-				t.Error("signature verification unexpectedly issued a session cookie")
+			cookies := response.Result().Cookies()
+			if tt.wantStatus == http.StatusNoContent {
+				if len(cookies) != 1 || cookies[0].Name != sessionCookieName || cookies[0].Value == sessionID {
+					t.Fatalf("expected a rotated session cookie, got %v", cookies)
+				}
+				if len(store.authenticatedSessions) != 1 || store.authenticatedSessions[cookies[0].Value] != demoUserHandle {
+					t.Errorf("new session is not bound to the account: %v", store.authenticatedSessions)
+				}
+				if _, ok := store.authenticatedSessions[sessionID]; ok {
+					t.Error("previous session remains authenticated")
+				}
+			} else if len(cookies) != 0 || len(store.authenticatedSessions) != 1 ||
+				store.authenticatedSessions[sessionID] != demoUserHandle {
+				t.Error("failed verification changed the authenticated session")
 			}
 		})
 	}
