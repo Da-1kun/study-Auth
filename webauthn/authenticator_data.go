@@ -14,6 +14,8 @@ const (
 
 	flagUserPresent            = 1 << 0
 	flagUserVerified           = 1 << 2
+	flagBackupEligible         = 1 << 3
+	flagBackupState            = 1 << 4
 	flagAttestedCredentialData = 1 << 6
 	flagExtensionData          = 1 << 7
 )
@@ -32,6 +34,9 @@ func verifyRegistrationAuthenticatorData(authData []byte) error {
 	flags := authData[sha256.Size]
 	if flags&requiredFlags != requiredFlags {
 		return errors.New("authData must set UP, UV, and AT flags")
+	}
+	if flags&flagBackupState != 0 && flags&flagBackupEligible == 0 {
+		return errors.New("authData sets BS without BE")
 	}
 	return nil
 }

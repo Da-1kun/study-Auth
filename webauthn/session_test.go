@@ -10,13 +10,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fxamacker/cbor/v2"
 )
 
 func TestRegistrationOptionsAuthenticatorSelection(t *testing.T) {
 	credential := credentialDescriptor{Type: "public-key", ID: "AQID"}
 	tests := []struct {
 		name        string
-		idsByUser   map[string][]string
+		credentials map[string]registeredCredential
 		wantExclude []credentialDescriptor
 	}{
 		{
@@ -25,9 +27,9 @@ func TestRegistrationOptionsAuthenticatorSelection(t *testing.T) {
 		},
 		{
 			name: "only credentials belonging to the registration account",
-			idsByUser: map[string][]string{
-				demoUserHandle: {credential.ID},
-				"another-user": {"BAUG"},
+			credentials: map[string]registeredCredential{
+				credential.ID: {userHandle: demoUserHandle},
+				"BAUG":        {userHandle: "another-user"},
 			},
 			wantExclude: []credentialDescriptor{credential},
 		},
@@ -36,8 +38,8 @@ func TestRegistrationOptionsAuthenticatorSelection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &sessionStore{
-				sessions:                  make(map[string]pendingChallenge),
-				credentialIDsByUserHandle: tt.idsByUser,
+				sessions:    make(map[string]pendingChallenge),
+				credentials: tt.credentials,
 			}
 			response := httptest.NewRecorder()
 			store.handleRegistrationOptions(response, httptest.NewRequest(http.MethodPost, "/register/options", nil))
@@ -60,6 +62,52 @@ func TestRegistrationOptionsAuthenticatorSelection(t *testing.T) {
 				t.Errorf("excludeCredentials = %#v, want %#v", options.ExcludeCredentials, tt.wantExclude)
 			}
 		})
+	}
+}
+
+func TestRegistrationFinishStoresCredentialOnce(t *testing.T) {
+	authData, err := parseNoneAttestation(registrationAttestationFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authData[32] |= 0x08
+	copy(authData[33:37], []byte{0, 0, 1, 2})
+	attestation, err := cbor.Marshal(map[string]any{
+		"fmt": "none", "attStmt": map[string]any{}, "authData": authData,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(attestation)
+
+	store := &sessionStore{sessions: make(map[string]pendingChallenge)}
+	sessions := []string{"session-a", "session-b"}
+	for _, id := range sessions {
+		store.sessions[id] = pendingChallenge{
+			value: id, operation: registerOperation, userHandle: demoUserHandle, expiresAt: time.Now().Add(time.Minute),
+		}
+	}
+	statuses := make(chan int, len(sessions))
+	for _, id := range sessions {
+		go func() {
+			clientData := fmt.Sprintf(`{"type":"webauthn.create","challenge":%q,"origin":%q}`, id, rpOrigin)
+			body := strings.Replace(registrationFinishBody(clientData), registrationAttestationFixture, encoded, 1)
+			request := httptest.NewRequest(http.MethodPost, "/register/finish", strings.NewReader(body))
+			request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: id})
+			response := httptest.NewRecorder()
+			store.handleRegistrationFinish(response, request)
+			statuses <- response.Code
+		}()
+	}
+	got := []int{<-statuses, <-statuses}
+	slices.Sort(got)
+	if want := []int{http.StatusNoContent, http.StatusConflict}; !slices.Equal(got, want) {
+		t.Fatalf("finish statuses = %v, want %v", got, want)
+	}
+	credential, ok := store.credentials["AQID"]
+	if len(store.credentials) != 1 || !ok || credential.userHandle != demoUserHandle ||
+		credential.publicKey == nil || credential.signCount != 258 || !credential.backupEligible {
+		t.Fatalf("incorrect stored credential: %+v", credential)
 	}
 }
 

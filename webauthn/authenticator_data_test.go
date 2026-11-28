@@ -90,6 +90,7 @@ func TestVerifyRegistrationAuthenticatorData(t *testing.T) {
 	}{
 		{"required flags", "localhost", 0x45, 37, true},
 		{"additional flags", "localhost", 0x5d, 37, true},
+		{"backup state without eligibility", "localhost", 0x55, 37, false},
 		{"truncated header", "localhost", 0x45, 36, false},
 		{"wrong RP ID", "localhost:8081", 0x45, 37, false},
 		{"missing UP", "localhost", 0x44, 37, false},

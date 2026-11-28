@@ -116,7 +116,7 @@ Step 1 の時点では、`/register/options` が発行した Cookie を付けて
 
 現在は `curl -sS -X POST http://localhost:8081/register/options` で、`rp.id` が `localhost`、`user.name` が `demo`、`pubKeyCredParams` が `[{"type":"public-key","alg":-7}]` になることを確認できる。`challenge` と `user.id` はパディングなしの base64url で返る。
 
-`authenticatorSelection` で、認証器がアカウントを選べる資格情報と、PIN や生体認証などによるユーザー確認を要求する。`excludeCredentials` には同じアカウントの登録済み credential ID が入る。登録データを保存する Step 3 までは、起動したサーバーは空配列を返す。
+`authenticatorSelection` で、認証器がアカウントを選べる資格情報と、PIN や生体認証などによるユーザー確認を要求する。`excludeCredentials` には同じアカウントの登録済み credential ID が入る。登録がまだなければ空配列を返す。
 
 「パスキーを作成」を押すと、Network タブの `/register/options` のレスポンスに base64url の値が表示される。ブラウザはそれを `Uint8Array` に変換してから認証器に作成を要求する。作成後は `/register/finish` の Payload に `rawId`、`response.clientDataJSON`、`response.attestationObject` が表示される。base64url をデコードした `clientDataJSON` の `challenge` を発行値と見比べる。認証器の操作をキャンセルすると、画面に案内が表示される。
 
@@ -126,11 +126,13 @@ Step 1 の時点では、`/register/options` が発行した Cookie を付けて
 - [x] CBOR の `attestationObject` を読み、`fmt == "none"`、空の `attStmt` を確認する。この方針で受け入れたデータから認証器の機種や信頼性は判定できない
 - [x] `authData` を解析し、`rpIdHash == SHA256(RP ID)`、UP（User Present）、UV（User Verified）、AT（Attested Credential Data）を確認する
 - [x] 埋め込まれた credential ID と `rawId` の一致を確認する。COSE_Key の鍵種別・アルゴリズム・曲線と点の座標を検証し、P-256 の公開鍵として扱う
-- [ ] credential ID の重複を拒否し、検証済みの ID、公開鍵、署名カウンター、バックアップ適格性を登録対象アカウントと紐づけて保存する
+- [x] credential ID の重複を拒否し、検証済みの ID、公開鍵、署名カウンター、バックアップ適格性を登録対象アカウントと紐づけて保存する
 
 理解したいことは、`origin` がスキームとポートを含むページの出所を表し、`rpIdHash` が認証器の資格情報のスコープを表す点。
 
-Network タブで `/register/finish` のステータスを確認する。`authData` の先頭 32 バイトが `SHA256("localhost")` と一致し、次の 1 バイトに UP・UV・AT が立っていることを確認する。続けて、認証器データ内の credential ID を `rawId` とバイト単位で照合し、COSE_Key を EC2・ES256・P-256 の公開鍵として読み取る。点が曲線上にない場合や照合に失敗した場合は `400 Bad Request` が返る。現在の `204 No Content` はここまでの検証が成功したことを示し、公開鍵の保存は次の項目で行う。
+Network タブで `/register/finish` のステータスを確認する。サーバーは `authData` の RP ID ハッシュとフラグを検証し、credential ID を `rawId` と照合して COSE_Key から公開鍵を読み取る。検証に失敗すると `400 Bad Request` が返る。検証済みの ID がすでに保存されている場合は `409 Conflict` が返る。
+
+`204 No Content` が返ったら、次の `/register/options` のレスポンスで、登録済み ID が `excludeCredentials` に入ることを確認する。ID、公開鍵、署名カウンター、バックアップ適格性（BE フラグ）は対象アカウントに紐づけてメモリに保存する。サーバーを再起動すると登録データは消える。
 
 ### Step 4 — 認証オプションと assertion の取得
 

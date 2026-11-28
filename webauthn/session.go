@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -25,11 +28,18 @@ type pendingChallenge struct {
 	expiresAt  time.Time
 }
 
-// sessionStore はセッション ID ごとに進行中の challenge を保持する。
+type registeredCredential struct {
+	userHandle     string
+	publicKey      *ecdsa.PublicKey
+	signCount      uint32
+	backupEligible bool
+}
+
+// sessionStore は進行中の challenge と登録済みの資格情報をメモリに保持する。
 type sessionStore struct {
-	mu                        sync.Mutex
-	sessions                  map[string]pendingChallenge
-	credentialIDsByUserHandle map[string][]string
+	mu          sync.Mutex
+	sessions    map[string]pendingChallenge
+	credentials map[string]registeredCredential // キーはパディングなしの base64url credential ID
 }
 
 type registrationOptions struct {
@@ -92,10 +102,11 @@ func (s *sessionStore) excludedCredentials(userHandle string) []credentialDescri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ids := s.credentialIDsByUserHandle[userHandle]
-	credentials := make([]credentialDescriptor, 0, len(ids))
-	for _, id := range ids {
-		credentials = append(credentials, credentialDescriptor{Type: "public-key", ID: id})
+	credentials := make([]credentialDescriptor, 0)
+	for id, credential := range s.credentials {
+		if credential.userHandle == userHandle {
+			credentials = append(credentials, credentialDescriptor{Type: "public-key", ID: id})
+		}
 	}
 	return credentials
 }
@@ -163,13 +174,38 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid rawId encoding", http.StatusBadRequest)
 		return
 	}
-	if _, err := parseRegistrationPublicKey(authData, rawID); err != nil {
+	publicKey, err := parseRegistrationPublicKey(authData, rawID)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// 検証済みの credential ID と公開鍵の保存は次の項目で追加する。
+	id := base64.RawURLEncoding.EncodeToString(rawID)
+	registered := registeredCredential{
+		userHandle:     pending.userHandle,
+		publicKey:      publicKey,
+		signCount:      binary.BigEndian.Uint32(authData[sha256.Size+1 : authenticatorDataHeaderSize]),
+		backupEligible: authData[sha256.Size]&flagBackupEligible != 0,
+	}
+	if !s.saveCredential(id, registered) {
+		http.Error(w, "credential ID already registered", http.StatusConflict)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *sessionStore) saveCredential(id string, credential registeredCredential) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.credentials[id]; exists {
+		return false
+	}
+	if s.credentials == nil {
+		s.credentials = make(map[string]registeredCredential)
+	}
+	s.credentials[id] = credential
+	return true
 }
 
 func (s *sessionStore) consumeChallenge(r *http.Request, operation string) (pendingChallenge, bool) {
