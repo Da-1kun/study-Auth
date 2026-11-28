@@ -24,6 +24,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /register/options", sessions.handleRegistrationOptions)
 	mux.HandleFunc("POST /register/finish", sessions.handleRegistrationFinish)
+	mux.HandleFunc("POST /login/options", sessions.handleLoginOptions)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(indexHTML)

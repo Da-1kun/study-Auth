@@ -17,6 +17,7 @@ const (
 	sessionCookieName = "webauthn_sid"
 	challengeLifetime = 5 * time.Minute
 	registerOperation = "register"
+	loginOperation    = "login"
 	rpID              = "localhost"
 	es256Algorithm    = -7
 )
@@ -50,6 +51,13 @@ type registrationOptions struct {
 	AuthenticatorSelection authenticatorSelection `json:"authenticatorSelection"`
 	ExcludeCredentials     []credentialDescriptor `json:"excludeCredentials"`
 	Attestation            string                 `json:"attestation"`
+}
+
+type loginOptions struct {
+	Challenge        string                 `json:"challenge"`
+	RPID             string                 `json:"rpId"`
+	AllowCredentials []credentialDescriptor `json:"allowCredentials"`
+	UserVerification string                 `json:"userVerification"`
 }
 
 type relyingParty struct {
@@ -93,12 +101,30 @@ func (s *sessionStore) handleRegistrationOptions(w http.ResponseWriter, r *http.
 			ResidentKey:      "required",
 			UserVerification: "required",
 		},
-		ExcludeCredentials: s.excludedCredentials(demoUserHandle),
+		ExcludeCredentials: s.credentialDescriptors(demoUserHandle),
 		Attestation:        "none",
 	})
 }
 
-func (s *sessionStore) excludedCredentials(userHandle string) []credentialDescriptor {
+func (s *sessionStore) handleLoginOptions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	credentials := s.credentialDescriptors(demoUserHandle)
+	if len(credentials) == 0 {
+		http.Error(w, "no passkey registered for this account", http.StatusConflict)
+		return
+	}
+
+	challenge := s.issueChallenge(w, r, loginOperation, demoUserHandle)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(loginOptions{
+		Challenge:        challenge,
+		RPID:             rpID,
+		AllowCredentials: credentials,
+		UserVerification: "required",
+	})
+}
+
+func (s *sessionStore) credentialDescriptors(userHandle string) []credentialDescriptor {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

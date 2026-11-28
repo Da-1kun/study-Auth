@@ -14,6 +14,76 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+func TestLoginOptions(t *testing.T) {
+	tests := []struct {
+		name        string
+		credentials map[string]registeredCredential
+		wantStatus  int
+	}{
+		{
+			name: "no passkey for the account",
+			credentials: map[string]registeredCredential{
+				"BAUG": {userHandle: "another-user"},
+			},
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name: "registered passkey for the account",
+			credentials: map[string]registeredCredential{
+				"AQID": {userHandle: demoUserHandle},
+				"BAUG": {userHandle: "another-user"},
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &sessionStore{
+				sessions:    make(map[string]pendingChallenge),
+				credentials: tt.credentials,
+			}
+			request := httptest.NewRequest(http.MethodPost, "/login/options", nil)
+			response := httptest.NewRecorder()
+			store.handleLoginOptions(response, request)
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+			cookies := response.Result().Cookies()
+			if tt.wantStatus == http.StatusConflict {
+				if len(cookies) != 0 || len(store.sessions) != 0 {
+					t.Fatal("login issued a session without an eligible passkey")
+				}
+				return
+			}
+
+			var options loginOptions
+			if err := json.Unmarshal(response.Body.Bytes(), &options); err != nil {
+				t.Fatal(err)
+			}
+			wantCredentials := []credentialDescriptor{{Type: "public-key", ID: "AQID"}}
+			if options.RPID != "localhost" || options.UserVerification != "required" ||
+				!slices.Equal(options.AllowCredentials, wantCredentials) {
+				t.Fatalf("unexpected login options: %+v", options)
+			}
+			decoded, err := base64.RawURLEncoding.DecodeString(options.Challenge)
+			if err != nil || len(decoded) != 32 || len(cookies) != 1 {
+				t.Fatal("expected a 32-byte challenge and one session cookie")
+			}
+			pending := store.sessions[cookies[0].Value]
+			if pending.value != options.Challenge || pending.operation != loginOperation || pending.userHandle != demoUserHandle {
+				t.Fatal("login challenge was not bound to the account and operation")
+			}
+
+			request.AddCookie(cookies[0])
+			next := httptest.NewRecorder()
+			store.handleLoginOptions(next, request)
+			if next.Code != http.StatusOK || store.sessions[cookies[0].Value].value == pending.value {
+				t.Fatal("repeated login did not replace the challenge")
+			}
+		})
+	}
+}
+
 func TestRegistrationOptionsAuthenticatorSelection(t *testing.T) {
 	credential := credentialDescriptor{Type: "public-key", ID: "AQID"}
 	tests := []struct {

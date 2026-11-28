@@ -139,7 +139,7 @@ sequenceDiagram
 
 ### Step 4 — 認証オプションと assertion の取得
 
-- [ ] `POST /login/options` で新しい challenge、`rpId`、対象アカウントの credential ID を含む `allowCredentials`、`userVerification: "required"` を返す
+- [x] `POST /login/options` で新しい challenge、`rpId`、対象アカウントの credential ID を含む `allowCredentials`、`userVerification: "required"` を返す。対象アカウントに登録済みパスキーがない場合は `409 Conflict` を返す
 - [ ] `challenge` と `allowCredentials[].id` をバイト列に変換し、`navigator.credentials.get({ publicKey })` を呼ぶ
 - [ ] `rawId`、`clientDataJSON`、`authenticatorData`、`signature`、返された場合は `userHandle` を base64url で `POST /login/finish` に送る
 
