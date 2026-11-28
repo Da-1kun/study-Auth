@@ -109,7 +109,7 @@
           }),
         });
         if (finish.status === 501) {
-          status.textContent = "資格情報を照合しました。署名の検証は Step 5 の後続項目で実装します。";
+          status.textContent = "資格情報と認証応答の内容を照合しました。署名の検証は Step 5 の後続項目で実装します。";
           return;
         }
         if (!finish.ok) {

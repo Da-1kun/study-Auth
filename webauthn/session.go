@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"slices"
@@ -170,26 +171,8 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	rawClientData, err := base64.RawURLEncoding.Strict().DecodeString(credential.Response.ClientDataJSON)
-	if err != nil {
-		http.Error(w, "invalid clientDataJSON encoding", http.StatusBadRequest)
-		return
-	}
-	var clientData struct {
-		Type        string `json:"type"`
-		Challenge   string `json:"challenge"`
-		Origin      string `json:"origin"`
-		CrossOrigin bool   `json:"crossOrigin"`
-		TopOrigin   string `json:"topOrigin"`
-	}
-	if err := json.Unmarshal(rawClientData, &clientData); err != nil {
-		http.Error(w, "invalid clientDataJSON", http.StatusBadRequest)
-		return
-	}
-	if clientData.Type != "webauthn.create" || clientData.Challenge != pending.value ||
-		clientData.Origin != rpOrigin || clientData.CrossOrigin ||
-		(clientData.TopOrigin != "" && clientData.TopOrigin != rpOrigin) {
-		http.Error(w, "unexpected registration client data", http.StatusBadRequest)
+	if err := verifyClientData(credential.Response.ClientDataJSON, "webauthn.create", pending.value); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -243,7 +226,9 @@ func (s *sessionStore) handleLoginFinish(w http.ResponseWriter, r *http.Request)
 	var assertion struct {
 		RawID    string `json:"rawId"`
 		Response struct {
-			UserHandle *string `json:"userHandle"`
+			UserHandle        *string `json:"userHandle"`
+			ClientDataJSON    string  `json:"clientDataJSON"`
+			AuthenticatorData string  `json:"authenticatorData"`
 		} `json:"response"`
 	}
 	if err := json.Unmarshal(body, &assertion); err != nil {
@@ -277,7 +262,43 @@ func (s *sessionStore) handleLoginFinish(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	http.Error(w, "assertion verification is not implemented", http.StatusNotImplemented)
+	if err := verifyClientData(assertion.Response.ClientDataJSON, "webauthn.get", pending.value); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	authData, err := base64.RawURLEncoding.Strict().DecodeString(assertion.Response.AuthenticatorData)
+	if err != nil {
+		http.Error(w, "invalid authenticatorData encoding", http.StatusBadRequest)
+		return
+	}
+	if err := verifyLoginAuthenticatorData(authData, credential.backupEligible); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	http.Error(w, "assertion signature verification is not implemented", http.StatusNotImplemented)
+}
+
+func verifyClientData(encoded, expectedType, expectedChallenge string) error {
+	raw, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
+	if err != nil {
+		return errors.New("invalid clientDataJSON encoding")
+	}
+	var clientData struct {
+		Type        string          `json:"type"`
+		Challenge   string          `json:"challenge"`
+		Origin      string          `json:"origin"`
+		CrossOrigin bool            `json:"crossOrigin"`
+		TopOrigin   json.RawMessage `json:"topOrigin"`
+	}
+	if err := json.Unmarshal(raw, &clientData); err != nil {
+		return errors.New("invalid clientDataJSON")
+	}
+	if clientData.Type != expectedType || clientData.Challenge != expectedChallenge ||
+		clientData.Origin != rpOrigin || clientData.CrossOrigin || len(clientData.TopOrigin) != 0 {
+		return errors.New("unexpected client data")
+	}
+	return nil
 }
 
 func (s *sessionStore) saveCredential(id string, credential registeredCredential) bool {

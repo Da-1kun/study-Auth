@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -93,14 +94,14 @@ func TestLoginFinishCredentialChecks(t *testing.T) {
 		owner      string
 		want       int
 	}{
-		{"matching credential and user handle", "AQID", fmt.Sprintf(`{"userHandle":%q}`, demoUserHandle), demoUserHandle, http.StatusNotImplemented},
-		{"matching credential without user handle", "AQID", "{}", demoUserHandle, http.StatusNotImplemented},
-		{"credential registered after options", "BAUG", "{}", demoUserHandle, http.StatusBadRequest},
-		{"credential belongs to another account", "AQID", "{}", "another-user", http.StatusBadRequest},
-		{"unknown credential", "AQID", "{}", "", http.StatusBadRequest},
-		{"invalid credential ID", "!", "{}", demoUserHandle, http.StatusBadRequest},
-		{"wrong user handle", "AQID", `{"userHandle":"AQID"}`, demoUserHandle, http.StatusBadRequest},
-		{"invalid user handle", "AQID", `{"userHandle":"!"}`, demoUserHandle, http.StatusBadRequest},
+		{"matching credential and user handle", "AQID", demoUserHandle, demoUserHandle, http.StatusNotImplemented},
+		{"matching credential without user handle", "AQID", "", demoUserHandle, http.StatusNotImplemented},
+		{"credential registered after options", "BAUG", "", demoUserHandle, http.StatusBadRequest},
+		{"credential belongs to another account", "AQID", "", "another-user", http.StatusBadRequest},
+		{"unknown credential", "AQID", "", "", http.StatusBadRequest},
+		{"invalid credential ID", "!", "", demoUserHandle, http.StatusBadRequest},
+		{"wrong user handle", "AQID", "AQID", demoUserHandle, http.StatusBadRequest},
+		{"invalid user handle", "AQID", "!", demoUserHandle, http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,7 +123,9 @@ func TestLoginFinishCredentialChecks(t *testing.T) {
 				store.credentials[tt.rawID] = registeredCredential{userHandle: tt.owner}
 			}
 
-			body := fmt.Sprintf(`{"rawId":%q,"response":%s}`, tt.rawID, tt.userHandle)
+			challenge := store.sessions[cookies[0].Value].value
+			clientData := fmt.Sprintf(`{"type":"webauthn.get","challenge":%q,"origin":%q}`, challenge, rpOrigin)
+			body := loginFinishBody(t, tt.rawID, tt.userHandle, clientData, loginAuthenticatorData(rpID, 0x05))
 			request := httptest.NewRequest(http.MethodPost, "/login/finish", strings.NewReader(body))
 			request.AddCookie(cookies[0])
 			response := httptest.NewRecorder()
@@ -135,6 +138,77 @@ func TestLoginFinishCredentialChecks(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoginFinishAssertionData(t *testing.T) {
+	const valid = `{"type":"webauthn.get","challenge":"AQID","origin":"http://localhost:8081","crossOrigin":false}`
+	tests := []struct {
+		name       string
+		clientData string
+		authData   []byte
+		eligible   bool
+		want       int
+	}{
+		{"valid assertion data", valid, loginAuthenticatorData("localhost", 0x05), false, http.StatusNotImplemented},
+		{"valid backup eligibility", valid, loginAuthenticatorData("localhost", 0x1d), true, http.StatusNotImplemented},
+		{"wrong type", strings.Replace(valid, "webauthn.get", "webauthn.create", 1), loginAuthenticatorData("localhost", 0x05), false, http.StatusBadRequest},
+		{"wrong challenge", strings.Replace(valid, "AQID", "BAUG", 1), loginAuthenticatorData("localhost", 0x05), false, http.StatusBadRequest},
+		{"wrong origin", strings.Replace(valid, "8081", "8080", 1), loginAuthenticatorData("localhost", 0x05), false, http.StatusBadRequest},
+		{"cross origin", strings.Replace(valid, "false", "true", 1), loginAuthenticatorData("localhost", 0x05), false, http.StatusBadRequest},
+		{"top origin present", strings.TrimSuffix(valid, "}") + `,"topOrigin":"http://localhost:8081"}`, loginAuthenticatorData("localhost", 0x05), false, http.StatusBadRequest},
+		{"wrong RP ID hash", valid, loginAuthenticatorData("other.example", 0x05), false, http.StatusBadRequest},
+		{"short authenticator data", valid, []byte{1}, false, http.StatusBadRequest},
+		{"missing UP", valid, loginAuthenticatorData("localhost", 0x04), false, http.StatusBadRequest},
+		{"missing UV", valid, loginAuthenticatorData("localhost", 0x01), false, http.StatusBadRequest},
+		{"unexpected AT", valid, loginAuthenticatorData("localhost", 0x45), false, http.StatusBadRequest},
+		{"backup eligibility changed", valid, loginAuthenticatorData("localhost", 0x0d), false, http.StatusBadRequest},
+		{"backup state without eligibility", valid, loginAuthenticatorData("localhost", 0x15), false, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &sessionStore{
+				sessions: map[string]pendingChallenge{
+					"login": {
+						value: "AQID", operation: loginOperation, userHandle: demoUserHandle,
+						expiresAt:        time.Now().Add(time.Minute),
+						allowCredentials: []credentialDescriptor{{Type: "public-key", ID: "AQID"}},
+					},
+				},
+				credentials: map[string]registeredCredential{
+					"AQID": {userHandle: demoUserHandle, backupEligible: tt.eligible},
+				},
+			}
+			body := loginFinishBody(t, "AQID", "", tt.clientData, tt.authData)
+			request := httptest.NewRequest(http.MethodPost, "/login/finish", strings.NewReader(body))
+			request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "login"})
+			response := httptest.NewRecorder()
+			store.handleLoginFinish(response, request)
+			if response.Code != tt.want {
+				t.Errorf("status = %d, want %d, body = %q", response.Code, tt.want, response.Body.String())
+			}
+		})
+	}
+}
+
+func loginAuthenticatorData(rp string, flags byte) []byte {
+	hash := sha256.Sum256([]byte(rp))
+	return append(hash[:], flags, 0, 0, 0, 0)
+}
+
+func loginFinishBody(t *testing.T, rawID, userHandle, clientData string, authData []byte) string {
+	t.Helper()
+	data := map[string]string{
+		"clientDataJSON":    base64.RawURLEncoding.EncodeToString([]byte(clientData)),
+		"authenticatorData": base64.RawURLEncoding.EncodeToString(authData),
+	}
+	if userHandle != "" {
+		data["userHandle"] = userHandle
+	}
+	response, err := json.Marshal(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf(`{"rawId":%q,"response":%s}`, rawID, response)
 }
 
 func TestRegistrationOptionsAuthenticatorSelection(t *testing.T) {

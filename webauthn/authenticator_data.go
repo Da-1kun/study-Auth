@@ -21,6 +21,25 @@ const (
 )
 
 func verifyRegistrationAuthenticatorData(authData []byte) error {
+	const requiredFlags = flagUserPresent | flagUserVerified | flagAttestedCredentialData
+	return verifyAuthenticatorDataHeader(authData, requiredFlags)
+}
+
+func verifyLoginAuthenticatorData(authData []byte, backupEligible bool) error {
+	if err := verifyAuthenticatorDataHeader(authData, flagUserPresent|flagUserVerified); err != nil {
+		return err
+	}
+	flags := authData[sha256.Size]
+	if flags&flagAttestedCredentialData != 0 {
+		return errors.New("unexpected attested credential data in assertion")
+	}
+	if (flags&flagBackupEligible != 0) != backupEligible {
+		return errors.New("credential backup eligibility mismatch")
+	}
+	return verifyAuthenticatorExtensions(authData[authenticatorDataHeaderSize:], flags)
+}
+
+func verifyAuthenticatorDataHeader(authData []byte, requiredFlags byte) error {
 	if len(authData) < authenticatorDataHeaderSize {
 		return errors.New("authData header is too short")
 	}
@@ -30,10 +49,9 @@ func verifyRegistrationAuthenticatorData(authData []byte) error {
 		return errors.New("authData RP ID hash mismatch")
 	}
 
-	const requiredFlags = flagUserPresent | flagUserVerified | flagAttestedCredentialData
 	flags := authData[sha256.Size]
 	if flags&requiredFlags != requiredFlags {
-		return errors.New("authData must set UP, UV, and AT flags")
+		return errors.New("authData is missing required flags")
 	}
 	if flags&flagBackupState != 0 && flags&flagBackupEligible == 0 {
 		return errors.New("authData sets BS without BE")
@@ -61,15 +79,22 @@ func parseRegistrationPublicKey(authData, rawID []byte) (*ecdsa.PublicKey, error
 	if err != nil {
 		return nil, errors.New("invalid credential public key CBOR")
 	}
-	if authData[sha256.Size]&flagExtensionData != 0 {
-		var extensions map[string]any
-		if err := attestationDecoder.Unmarshal(rest, &extensions); err != nil || extensions == nil {
-			return nil, errors.New("invalid authenticator extensions")
-		}
-	} else if len(rest) != 0 {
-		return nil, errors.New("unexpected data after credential public key")
+	if err := verifyAuthenticatorExtensions(rest, authData[sha256.Size]); err != nil {
+		return nil, err
 	}
 	return parseES256PublicKey(key)
+}
+
+func verifyAuthenticatorExtensions(rest []byte, flags byte) error {
+	if flags&flagExtensionData != 0 {
+		var extensions map[string]any
+		if err := attestationDecoder.Unmarshal(rest, &extensions); err != nil || extensions == nil {
+			return errors.New("invalid authenticator extensions")
+		}
+	} else if len(rest) != 0 {
+		return errors.New("unexpected trailing authenticator data")
+	}
+	return nil
 }
 
 func parseES256PublicKey(key map[int]any) (*ecdsa.PublicKey, error) {
