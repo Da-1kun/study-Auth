@@ -674,6 +674,47 @@ func TestRegistrationFinishClientData(t *testing.T) {
 	}
 }
 
+func TestRegistrationChallengeIsBoundToIssuingSession(t *testing.T) {
+	store := &sessionStore{sessions: make(map[string]pendingChallenge)}
+	cookies := make([]*http.Cookie, 2)
+	var firstOptions registrationOptions
+	for i := range cookies {
+		response := httptest.NewRecorder()
+		store.handleRegistrationOptions(response, httptest.NewRequest(http.MethodPost, "/register/options", nil))
+		issued := response.Result().Cookies()
+		if response.Code != http.StatusOK || len(issued) != 1 {
+			t.Fatal("expected registration options and a session cookie")
+		}
+		cookies[i] = issued[0]
+		if i == 0 {
+			if err := json.Unmarshal(response.Body.Bytes(), &firstOptions); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	clientData := fmt.Sprintf(`{"type":"webauthn.create","challenge":%q,"origin":%q}`, firstOptions.Challenge, rpOrigin)
+	body := registrationFinishBody(clientData)
+
+	for _, tt := range []struct {
+		name       string
+		cookie     *http.Cookie
+		wantStatus int
+	}{
+		{"different active session", cookies[1], http.StatusBadRequest},
+		{"issuing session", cookies[0], http.StatusNoContent},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/register/finish", strings.NewReader(body))
+			request.AddCookie(tt.cookie)
+			response := httptest.NewRecorder()
+			store.handleRegistrationFinish(response, request)
+			if response.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d, body = %q", response.Code, tt.wantStatus, response.Body.String())
+			}
+		})
+	}
+}
+
 // none attestation。credential ID は 01 02 03、公開鍵はテスト用の P-256 の生成点。
 const registrationAttestationFixture = "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YViHSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwECA6UBAgMmIAEhWCBrF9Hy4SxCR_i85uVjpEDydwN9gS3rM6D0oTlF2JjCliJYIE_jQuL-Gn-bjufrSnwPnhYrzjNXazFezsu2QGg3v1H1"
 
