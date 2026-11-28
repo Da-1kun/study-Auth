@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	authenticatorDataHeaderSize = sha256.Size + 1 + 4 // RP ID hash, flags, signCount
+	signCountOffset             = sha256.Size + 1 // RP ID hash と flags の直後
+	authenticatorDataHeaderSize = signCountOffset + 4
 
 	flagUserPresent            = 1 << 0
 	flagUserVerified           = 1 << 2
@@ -19,6 +20,10 @@ const (
 	flagAttestedCredentialData = 1 << 6
 	flagExtensionData          = 1 << 7
 )
+
+func authenticatorSignCount(authData []byte) uint32 {
+	return binary.BigEndian.Uint32(authData[signCountOffset:authenticatorDataHeaderSize])
+}
 
 func verifyRegistrationAuthenticatorData(authData []byte) error {
 	const requiredFlags = flagUserPresent | flagUserVerified | flagAttestedCredentialData

@@ -5,10 +5,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"slices"
 	"sync"
@@ -201,7 +201,7 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 	registered := registeredCredential{
 		userHandle:     pending.userHandle,
 		publicKey:      publicKey,
-		signCount:      binary.BigEndian.Uint32(authData[sha256.Size+1 : authenticatorDataHeaderSize]),
+		signCount:      authenticatorSignCount(authData),
 		backupEligible: authData[sha256.Size]&flagBackupEligible != 0,
 	}
 	if !s.saveCredential(id, registered) {
@@ -291,7 +291,23 @@ func (s *sessionStore) handleLoginFinish(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	s.updateSignCount(id, authenticatorSignCount(authData))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *sessionStore) updateSignCount(id string, received uint32) {
+	s.mu.Lock()
+	credential, ok := s.credentials[id]
+	stored := credential.signCount
+	if ok && received > stored {
+		credential.signCount = received
+		s.credentials[id] = credential
+	}
+	s.mu.Unlock()
+
+	if ok && stored != 0 && received <= stored {
+		log.Printf("WebAuthn signCount did not increase: stored=%d received=%d", stored, received)
+	}
 }
 
 func verifyClientData(encoded, expectedType, expectedChallenge string) ([]byte, error) {

@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -258,6 +261,75 @@ func TestLoginFinishSignature(t *testing.T) {
 			}
 			if response.Header().Get("Set-Cookie") != "" {
 				t.Error("signature verification unexpectedly issued a session cookie")
+			}
+		})
+	}
+}
+
+func TestLoginFinishSignCount(t *testing.T) {
+	const clientData = `{"type":"webauthn.get","challenge":"AQID","origin":"http://localhost:8081"}`
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousLogOutput := log.Writer()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previousLogOutput) })
+
+	tests := []struct {
+		name       string
+		stored     uint32
+		received   uint32
+		valid      bool
+		wantStored uint32
+		wantLog    bool
+	}{
+		{"both zero", 0, 0, true, 0, false},
+		{"increase from zero", 0, 1, true, 1, false},
+		{"increase", 2, 258, true, 258, false},
+		{"equal", 3, 3, true, 3, true},
+		{"decrease", 3, 2, true, 3, true},
+		{"reset to zero", 3, 0, true, 3, true},
+		{"invalid signature cannot update count", 3, 4, false, 3, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs.Reset()
+			const sessionID = "login"
+			store := &sessionStore{
+				sessions: map[string]pendingChallenge{
+					sessionID: {
+						value: "AQID", operation: loginOperation, userHandle: demoUserHandle,
+						expiresAt:        time.Now().Add(time.Minute),
+						allowCredentials: []credentialDescriptor{{Type: "public-key", ID: "AQID"}},
+					},
+				},
+				credentials: map[string]registeredCredential{
+					"AQID": {userHandle: demoUserHandle, publicKey: &privateKey.PublicKey, signCount: tt.stored},
+				},
+			}
+			authData := loginAuthenticatorData(rpID, 0x05)
+			binary.BigEndian.PutUint32(authData[33:37], tt.received)
+			signature := "AQID"
+			wantStatus := http.StatusBadRequest
+			if tt.valid {
+				signature = signLoginAssertion(t, privateKey, clientData, authData)
+				wantStatus = http.StatusNoContent
+			}
+			body := loginFinishBody(t, "AQID", "", clientData, authData, signature)
+			request := httptest.NewRequest(http.MethodPost, "/login/finish", strings.NewReader(body))
+			request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionID})
+			response := httptest.NewRecorder()
+			store.handleLoginFinish(response, request)
+			if response.Code != wantStatus {
+				t.Errorf("status = %d, want %d, body = %q", response.Code, wantStatus, response.Body.String())
+			}
+			if got := store.credentials["AQID"].signCount; got != tt.wantStored {
+				t.Errorf("stored signCount = %d, want %d", got, tt.wantStored)
+			}
+			if logged := strings.Contains(logs.String(), "signCount did not increase"); logged != tt.wantLog {
+				t.Errorf("anomaly logged = %t, want %t, log = %q", logged, tt.wantLog, logs.String())
 			}
 		})
 	}
