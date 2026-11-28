@@ -108,14 +108,10 @@
             response: assertionResponse,
           }),
         });
-        if (finish.status === 501) {
-          status.textContent = "資格情報と認証応答の内容を照合しました。署名の検証は Step 5 の後続項目で実装します。";
-          return;
-        }
         if (!finish.ok) {
-          throw new Error(`認証応答の送信に失敗しました（HTTP ${finish.status}）。`);
+          throw new Error(`認証応答の検証に失敗しました（HTTP ${finish.status}）。`);
         }
-        status.textContent = "認証応答を送信しました。";
+        status.textContent = "認証応答の署名を検証しました。";
       } catch (error) {
         status.textContent = error.name === "NotAllowedError"
           ? "パスキーの操作を完了できませんでした。ボタンからやり直せます。"

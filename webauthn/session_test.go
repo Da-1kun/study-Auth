@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -87,6 +90,10 @@ func TestLoginOptions(t *testing.T) {
 }
 
 func TestLoginFinishCredentialChecks(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name       string
 		rawID      string
@@ -94,8 +101,8 @@ func TestLoginFinishCredentialChecks(t *testing.T) {
 		owner      string
 		want       int
 	}{
-		{"matching credential and user handle", "AQID", demoUserHandle, demoUserHandle, http.StatusNotImplemented},
-		{"matching credential without user handle", "AQID", "", demoUserHandle, http.StatusNotImplemented},
+		{"matching credential and user handle", "AQID", demoUserHandle, demoUserHandle, http.StatusNoContent},
+		{"matching credential without user handle", "AQID", "", demoUserHandle, http.StatusNoContent},
 		{"credential registered after options", "BAUG", "", demoUserHandle, http.StatusBadRequest},
 		{"credential belongs to another account", "AQID", "", "another-user", http.StatusBadRequest},
 		{"unknown credential", "AQID", "", "", http.StatusBadRequest},
@@ -120,12 +127,14 @@ func TestLoginFinishCredentialChecks(t *testing.T) {
 			if tt.owner == "" {
 				delete(store.credentials, tt.rawID)
 			} else {
-				store.credentials[tt.rawID] = registeredCredential{userHandle: tt.owner}
+				store.credentials[tt.rawID] = registeredCredential{userHandle: tt.owner, publicKey: &privateKey.PublicKey}
 			}
 
 			challenge := store.sessions[cookies[0].Value].value
 			clientData := fmt.Sprintf(`{"type":"webauthn.get","challenge":%q,"origin":%q}`, challenge, rpOrigin)
-			body := loginFinishBody(t, tt.rawID, tt.userHandle, clientData, loginAuthenticatorData(rpID, 0x05))
+			authData := loginAuthenticatorData(rpID, 0x05)
+			signature := signLoginAssertion(t, privateKey, clientData, authData)
+			body := loginFinishBody(t, tt.rawID, tt.userHandle, clientData, authData, signature)
 			request := httptest.NewRequest(http.MethodPost, "/login/finish", strings.NewReader(body))
 			request.AddCookie(cookies[0])
 			response := httptest.NewRecorder()
@@ -141,6 +150,10 @@ func TestLoginFinishCredentialChecks(t *testing.T) {
 }
 
 func TestLoginFinishAssertionData(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	const valid = `{"type":"webauthn.get","challenge":"AQID","origin":"http://localhost:8081","crossOrigin":false}`
 	tests := []struct {
 		name       string
@@ -149,8 +162,8 @@ func TestLoginFinishAssertionData(t *testing.T) {
 		eligible   bool
 		want       int
 	}{
-		{"valid assertion data", valid, loginAuthenticatorData("localhost", 0x05), false, http.StatusNotImplemented},
-		{"valid backup eligibility", valid, loginAuthenticatorData("localhost", 0x1d), true, http.StatusNotImplemented},
+		{"valid assertion data", valid, loginAuthenticatorData("localhost", 0x05), false, http.StatusNoContent},
+		{"valid backup eligibility", valid, loginAuthenticatorData("localhost", 0x1d), true, http.StatusNoContent},
 		{"wrong type", strings.Replace(valid, "webauthn.get", "webauthn.create", 1), loginAuthenticatorData("localhost", 0x05), false, http.StatusBadRequest},
 		{"wrong challenge", strings.Replace(valid, "AQID", "BAUG", 1), loginAuthenticatorData("localhost", 0x05), false, http.StatusBadRequest},
 		{"wrong origin", strings.Replace(valid, "8081", "8080", 1), loginAuthenticatorData("localhost", 0x05), false, http.StatusBadRequest},
@@ -175,10 +188,11 @@ func TestLoginFinishAssertionData(t *testing.T) {
 					},
 				},
 				credentials: map[string]registeredCredential{
-					"AQID": {userHandle: demoUserHandle, backupEligible: tt.eligible},
+					"AQID": {userHandle: demoUserHandle, publicKey: &privateKey.PublicKey, backupEligible: tt.eligible},
 				},
 			}
-			body := loginFinishBody(t, "AQID", "", tt.clientData, tt.authData)
+			signature := signLoginAssertion(t, privateKey, tt.clientData, tt.authData)
+			body := loginFinishBody(t, "AQID", "", tt.clientData, tt.authData, signature)
 			request := httptest.NewRequest(http.MethodPost, "/login/finish", strings.NewReader(body))
 			request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "login"})
 			response := httptest.NewRecorder()
@@ -190,14 +204,87 @@ func TestLoginFinishAssertionData(t *testing.T) {
 	}
 }
 
+func TestLoginFinishSignature(t *testing.T) {
+	const clientData = `{ "type": "webauthn.get", "challenge": "AQID", "origin": "http://localhost:8081" }`
+	authData := loginAuthenticatorData(rpID, 0x05)
+	changedAuthData := slices.Clone(authData)
+	changedAuthData[len(changedAuthData)-1] = 1
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := signLoginAssertion(t, privateKey, clientData, authData)
+	tests := []struct {
+		name       string
+		clientData string
+		authData   []byte
+		signature  string
+		wantStatus int
+	}{
+		{"valid signature using original JSON", clientData, authData, signature, http.StatusNoContent},
+		{"wrong signing key", clientData, authData, signLoginAssertion(t, otherKey, clientData, authData), http.StatusBadRequest},
+		{"changed JSON serialization", strings.ReplaceAll(clientData, " ", ""), authData, signature, http.StatusBadRequest},
+		{"changed authenticator data", clientData, changedAuthData, signature, http.StatusBadRequest},
+		{"invalid base64url", clientData, authData, "!", http.StatusBadRequest},
+		{"invalid ASN.1", clientData, authData, "AQID", http.StatusBadRequest},
+		{"empty signature", clientData, authData, "", http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const sessionID = "login"
+			store := &sessionStore{
+				sessions: map[string]pendingChallenge{
+					sessionID: {
+						value: "AQID", operation: loginOperation, userHandle: demoUserHandle,
+						expiresAt:        time.Now().Add(time.Minute),
+						allowCredentials: []credentialDescriptor{{Type: "public-key", ID: "AQID"}},
+					},
+				},
+				credentials: map[string]registeredCredential{
+					"AQID": {userHandle: demoUserHandle, publicKey: &privateKey.PublicKey},
+				},
+			}
+			body := loginFinishBody(t, "AQID", "", tt.clientData, tt.authData, tt.signature)
+			request := httptest.NewRequest(http.MethodPost, "/login/finish", strings.NewReader(body))
+			request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sessionID})
+			response := httptest.NewRecorder()
+			store.handleLoginFinish(response, request)
+			if response.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d, body = %q", response.Code, tt.wantStatus, response.Body.String())
+			}
+			if response.Header().Get("Set-Cookie") != "" {
+				t.Error("signature verification unexpectedly issued a session cookie")
+			}
+		})
+	}
+}
+
+func signLoginAssertion(t *testing.T, key *ecdsa.PrivateKey, clientData string, authData []byte) string {
+	t.Helper()
+	clientHash := sha256.Sum256([]byte(clientData))
+	digest := sha256.New()
+	digest.Write(authData)
+	digest.Write(clientHash[:])
+	signature, err := ecdsa.SignASN1(rand.Reader, key, digest.Sum(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(signature)
+}
+
 func loginAuthenticatorData(rp string, flags byte) []byte {
 	hash := sha256.Sum256([]byte(rp))
 	return append(hash[:], flags, 0, 0, 0, 0)
 }
 
-func loginFinishBody(t *testing.T, rawID, userHandle, clientData string, authData []byte) string {
+func loginFinishBody(t *testing.T, rawID, userHandle, clientData string, authData []byte, signature string) string {
 	t.Helper()
 	data := map[string]string{
+		"signature":         signature,
 		"clientDataJSON":    base64.RawURLEncoding.EncodeToString([]byte(clientData)),
 		"authenticatorData": base64.RawURLEncoding.EncodeToString(authData),
 	}

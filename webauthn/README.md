@@ -156,8 +156,10 @@ Network タブの `/login/finish` の Payload で、登録時と同じ credentia
 
 - [x] `rawId` が対象アカウントに属し、今回の `allowCredentials` に含まれることを確認する。`userHandle` が返った場合は保存済みの値と照合する
 - [x] `type == "webauthn.get"`、challenge、origin、クロスオリジンでないこと、`rpIdHash`、UP、UV を確認する。登録時とバックアップ適格性が一致することも確認する
-- [ ] 受信した生の `clientDataJSON` バイト列をハッシュし、`authenticatorData || SHA256(clientDataJSON)` を署名対象として組み立てる。ES256 ではその SHA-256 ダイジェストと登録済み公開鍵を使い、`ecdsa.VerifyASN1` で署名を検証する
+- [x] 受信した生の `clientDataJSON` バイト列をハッシュし、`authenticatorData || SHA256(clientDataJSON)` を署名対象として組み立てる。ES256 ではその SHA-256 ダイジェストと登録済み公開鍵を使い、`ecdsa.VerifyASN1` で署名を検証する
 - [ ] 署名検証後に `signCount` を確認する。受信値が保存値より大きければ保存値を更新する。両方が 0 の場合はカウンターによる判定を行わない。それ以外で受信値が増えていない場合は異常のシグナルとして記録し、保存値を維持する
+
+この項目までの `/login/finish` は、署名検証に成功すると `204 No Content`、失敗すると `400 Bad Request` を返す。ログイン状態の確立は Step 6 で行う。
 
 **理解したいこと**
 

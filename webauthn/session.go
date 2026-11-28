@@ -171,7 +171,7 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if err := verifyClientData(credential.Response.ClientDataJSON, "webauthn.create", pending.value); err != nil {
+	if _, err := verifyClientData(credential.Response.ClientDataJSON, "webauthn.create", pending.value); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -229,6 +229,7 @@ func (s *sessionStore) handleLoginFinish(w http.ResponseWriter, r *http.Request)
 			UserHandle        *string `json:"userHandle"`
 			ClientDataJSON    string  `json:"clientDataJSON"`
 			AuthenticatorData string  `json:"authenticatorData"`
+			Signature         string  `json:"signature"`
 		} `json:"response"`
 	}
 	if err := json.Unmarshal(body, &assertion); err != nil {
@@ -262,7 +263,8 @@ func (s *sessionStore) handleLoginFinish(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	if err := verifyClientData(assertion.Response.ClientDataJSON, "webauthn.get", pending.value); err != nil {
+	rawClientData, err := verifyClientData(assertion.Response.ClientDataJSON, "webauthn.get", pending.value)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -276,13 +278,26 @@ func (s *sessionStore) handleLoginFinish(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	http.Error(w, "assertion signature verification is not implemented", http.StatusNotImplemented)
+	signature, err := base64.RawURLEncoding.Strict().DecodeString(assertion.Response.Signature)
+	if err != nil {
+		http.Error(w, "invalid assertion signature encoding", http.StatusBadRequest)
+		return
+	}
+	clientDataHash := sha256.Sum256(rawClientData)
+	signedData := slices.Concat(authData, clientDataHash[:])
+	digest := sha256.Sum256(signedData)
+	if credential.publicKey == nil || !ecdsa.VerifyASN1(credential.publicKey, digest[:], signature) {
+		http.Error(w, "invalid assertion signature", http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
-func verifyClientData(encoded, expectedType, expectedChallenge string) error {
+func verifyClientData(encoded, expectedType, expectedChallenge string) ([]byte, error) {
 	raw, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
 	if err != nil {
-		return errors.New("invalid clientDataJSON encoding")
+		return nil, errors.New("invalid clientDataJSON encoding")
 	}
 	var clientData struct {
 		Type        string          `json:"type"`
@@ -292,13 +307,13 @@ func verifyClientData(encoded, expectedType, expectedChallenge string) error {
 		TopOrigin   json.RawMessage `json:"topOrigin"`
 	}
 	if err := json.Unmarshal(raw, &clientData); err != nil {
-		return errors.New("invalid clientDataJSON")
+		return nil, errors.New("invalid clientDataJSON")
 	}
 	if clientData.Type != expectedType || clientData.Challenge != expectedChallenge ||
 		clientData.Origin != rpOrigin || clientData.CrossOrigin || len(clientData.TopOrigin) != 0 {
-		return errors.New("unexpected client data")
+		return nil, errors.New("unexpected client data")
 	}
-	return nil
+	return raw, nil
 }
 
 func (s *sessionStore) saveCredential(id string, credential registeredCredential) bool {
