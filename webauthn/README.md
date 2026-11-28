@@ -141,9 +141,9 @@ sequenceDiagram
 
 - [x] `POST /login/options` で新しい challenge、`rpId`、対象アカウントの credential ID を含む `allowCredentials`、`userVerification: "required"` を返す。対象アカウントに登録済みパスキーがない場合は `409 Conflict` を返す
 - [x] `challenge` と `allowCredentials[].id` をバイト列に変換し、`navigator.credentials.get({ publicKey })` を呼ぶ
-- [ ] `rawId`、`clientDataJSON`、`authenticatorData`、`signature`、返された場合は `userHandle` を base64url で `POST /login/finish` に送る
+- [x] `rawId`、`clientDataJSON`、`authenticatorData`、`signature`、返された場合は `userHandle` を base64url で `POST /login/finish` に送る
 
-観察では、登録時と同じ credential ID が使われ、ログインのたびに新しい challenge と署名が返ることを確認する。
+Network タブの `/login/finish` の Payload で、登録時と同じ credential ID が `rawId` に入り、認証器データと署名が `response` に入ることを確認する。Step 4 の時点では `501 Not Implemented` が返る。サーバー側の検証は Step 5 で行う。
 
 **理解したいこと**
 

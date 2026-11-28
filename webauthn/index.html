@@ -90,8 +90,32 @@
           credential.id = decodeBase64URL(credential.id);
         }
 
-        await navigator.credentials.get({ publicKey: loginOptions });
-        status.textContent = "認証器から認証応答を取得しました。";
+        const credential = await navigator.credentials.get({ publicKey: loginOptions });
+        const assertionResponse = {
+          clientDataJSON: encodeBase64URL(credential.response.clientDataJSON),
+          authenticatorData: encodeBase64URL(credential.response.authenticatorData),
+          signature: encodeBase64URL(credential.response.signature),
+        };
+        if (credential.response.userHandle !== null) {
+          assertionResponse.userHandle = encodeBase64URL(credential.response.userHandle);
+        }
+
+        const finish = await fetch("/login/finish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rawId: encodeBase64URL(credential.rawId),
+            response: assertionResponse,
+          }),
+        });
+        if (finish.status === 501) {
+          status.textContent = "認証応答を送信しました。サーバー側の検証は Step 5 で実装します。";
+          return;
+        }
+        if (!finish.ok) {
+          throw new Error(`認証応答の送信に失敗しました（HTTP ${finish.status}）。`);
+        }
+        status.textContent = "認証応答を送信しました。";
       } catch (error) {
         status.textContent = error.name === "NotAllowedError"
           ? "パスキーの操作を完了できませんでした。ボタンからやり直せます。"
