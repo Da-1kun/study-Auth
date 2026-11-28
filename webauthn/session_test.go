@@ -21,6 +21,43 @@ import (
 	"github.com/fxamacker/cbor/v2"
 )
 
+func TestProfileRequiresAuthenticatedSession(t *testing.T) {
+	tests := []struct {
+		name       string
+		sessionID  string
+		wantStatus int
+	}{
+		{"no cookie", "", http.StatusFound},
+		{"unknown session", "unknown", http.StatusFound},
+		{"pending challenge", "pending", http.StatusFound},
+		{"authenticated session", "authenticated", http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &sessionStore{
+				sessions:              map[string]pendingChallenge{"pending": {userHandle: demoUserHandle}},
+				authenticatedSessions: map[string]string{"authenticated": demoUserHandle},
+			}
+			request := httptest.NewRequest(http.MethodGet, "/profile", nil)
+			if tt.sessionID != "" {
+				request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: tt.sessionID})
+			}
+			response := httptest.NewRecorder()
+			store.handleProfile(response, request)
+			if response.Code != tt.wantStatus || response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status = %d, headers = %v", response.Code, response.Header())
+			}
+			if tt.wantStatus == http.StatusOK {
+				if !strings.Contains(response.Body.String(), "ユーザー名 "+demoUsername) {
+					t.Errorf("profile did not show the username: %q", response.Body.String())
+				}
+			} else if response.Header().Get("Location") != "/" {
+				t.Errorf("redirect location = %q, want /", response.Header().Get("Location"))
+			}
+		})
+	}
+}
+
 func TestLoginOptions(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"html/template"
 	"log"
 	"net/http"
 )
@@ -19,6 +20,11 @@ const (
 //go:embed index.html
 var indexHTML []byte
 
+//go:embed profile.html
+var profileHTML string
+
+var profileTemplate = template.Must(template.New("profile").Parse(profileHTML))
+
 func main() {
 	sessions := &sessionStore{sessions: make(map[string]pendingChallenge)}
 	mux := http.NewServeMux()
@@ -26,6 +32,7 @@ func main() {
 	mux.HandleFunc("POST /register/finish", sessions.handleRegistrationFinish)
 	mux.HandleFunc("POST /login/options", sessions.handleLoginOptions)
 	mux.HandleFunc("POST /login/finish", sessions.handleLoginFinish)
+	mux.HandleFunc("GET /profile", sessions.handleProfile)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(indexHTML)

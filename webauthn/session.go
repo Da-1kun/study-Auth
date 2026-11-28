@@ -315,6 +315,28 @@ func (s *sessionStore) completeLogin(w http.ResponseWriter, r *http.Request, use
 	setSessionCookie(w, r, id)
 }
 
+func (s *sessionStore) handleProfile(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+
+	s.mu.Lock()
+	userHandle := s.authenticatedSessions[cookie.Value]
+	s.mu.Unlock()
+	if userHandle != demoUserHandle {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := profileTemplate.Execute(w, demoUsername); err != nil {
+		log.Printf("could not render profile: %v", err)
+	}
+}
+
 func (s *sessionStore) updateSignCount(id string, received uint32) {
 	s.mu.Lock()
 	credential, ok := s.credentials[id]

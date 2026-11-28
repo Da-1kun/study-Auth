@@ -111,7 +111,7 @@
         if (!finish.ok) {
           throw new Error(`認証応答の検証に失敗しました（HTTP ${finish.status}）。`);
         }
-        status.textContent = "ログインしました。";
+        window.location.assign("/profile");
       } catch (error) {
         status.textContent = error.name === "NotAllowedError"
           ? "パスキーの操作を完了できませんでした。ボタンからやり直せます。"

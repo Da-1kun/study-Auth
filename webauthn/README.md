@@ -58,7 +58,7 @@ sequenceDiagram
     K-->>B: authenticatorData と署名
     B->>A: POST /login/finish（rawId, clientDataJSON, authenticatorData, signature, userHandle）
     Note over A: [Step 5] 登録済み公開鍵を検索し、challenge、origin、rpIdHash、署名などを検証
-    A-->>B: [Step 6] セッション Cookie を設定し、プロフィール URL を返す
+    A-->>B: [Step 6] 204 No Content と新しいセッション Cookie
     B->>A: GET /profile（Cookie 付き）
     A-->>B: ユーザー名を表示
 ```
@@ -171,10 +171,10 @@ Step 5 の `/login/finish` は、署名検証に成功すると `204 No Content`
 ### Step 6 — セッションとプロフィール
 
 - [x] 検証成功時にセッション ID を再発行し、認証済みアカウントを紐づける
-- [ ] `GET /profile` は認証済みセッションのユーザー名を表示し、未ログインならトップページへ戻す
+- [x] `GET /profile` は認証済みセッションのユーザー名を表示し、未ログインならトップページへ戻す
 - [ ] `POST /logout` でセッションを破棄し、Cookie を削除する。ログアウト後に同じパスキーでログインできることを確認する
 
-ログイン成功時は `/login/finish` の `Set-Cookie` に新しい `webauthn_sid` が入る。サーバーは新しい ID とアカウントの対応をメモリに保存する。
+ログイン成功時は `/login/finish` の `Set-Cookie` に新しい `webauthn_sid` が入る。サーバーは新しい ID とアカウントの対応をメモリに保存する。ブラウザは `/profile` に移動し、セッションに紐づくユーザー名を表示する。
 
 **理解したいこと**
 
