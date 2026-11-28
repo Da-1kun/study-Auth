@@ -312,7 +312,7 @@ func (s *sessionStore) completeLogin(w http.ResponseWriter, r *http.Request, use
 	s.authenticatedSessions[id] = userHandle
 	s.mu.Unlock()
 
-	setSessionCookie(w, r, id)
+	setSessionCookie(w, r, id, 0)
 }
 
 func (s *sessionStore) handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -335,6 +335,19 @@ func (s *sessionStore) handleProfile(w http.ResponseWriter, r *http.Request) {
 	if err := profileTemplate.Execute(w, demoUsername); err != nil {
 		log.Printf("could not render profile: %v", err)
 	}
+}
+
+func (s *sessionStore) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		s.mu.Lock()
+		delete(s.authenticatedSessions, cookie.Value)
+		delete(s.sessions, cookie.Value)
+		s.mu.Unlock()
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+	setSessionCookie(w, r, "", -1)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *sessionStore) updateSignCount(id string, received uint32) {
@@ -437,15 +450,16 @@ func (s *sessionStore) issueChallenge(w http.ResponseWriter, r *http.Request, pe
 	s.sessions[id] = pending
 	s.mu.Unlock()
 
-	setSessionCookie(w, r, id)
+	setSessionCookie(w, r, id, 0)
 	return pending.value
 }
 
-func setSessionCookie(w http.ResponseWriter, r *http.Request, id string) {
+func setSessionCookie(w http.ResponseWriter, r *http.Request, id string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    id,
 		Path:     "/",
+		MaxAge:   maxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		Secure:   r.TLS != nil,

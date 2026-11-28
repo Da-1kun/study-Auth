@@ -33,6 +33,7 @@ func main() {
 	mux.HandleFunc("POST /login/options", sessions.handleLoginOptions)
 	mux.HandleFunc("POST /login/finish", sessions.handleLoginFinish)
 	mux.HandleFunc("GET /profile", sessions.handleProfile)
+	mux.HandleFunc("POST /logout", sessions.handleLogout)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(indexHTML)

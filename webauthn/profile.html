@@ -8,6 +8,9 @@
 <body>
   <h1>プロフィール</h1>
   <p>ユーザー名 {{ . }}</p>
+  <form method="post" action="/logout">
+    <button type="submit">ログアウト</button>
+  </form>
   <a href="/">トップページへ</a>
 </body>
 </html>

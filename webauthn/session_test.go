@@ -58,6 +58,39 @@ func TestProfileRequiresAuthenticatedSession(t *testing.T) {
 	}
 }
 
+func TestLogoutInvalidatesSession(t *testing.T) {
+	const sessionID = "authenticated"
+	store := &sessionStore{
+		sessions:              map[string]pendingChallenge{sessionID: {userHandle: demoUserHandle}},
+		authenticatedSessions: map[string]string{sessionID: demoUserHandle},
+		credentials:           map[string]registeredCredential{"AQID": {userHandle: demoUserHandle}},
+	}
+	cookie := &http.Cookie{Name: sessionCookieName, Value: sessionID}
+	request := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	store.handleLogout(response, request)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/" {
+		t.Fatalf("logout returned %d, Location = %q", response.Code, response.Header().Get("Location"))
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != sessionCookieName || cookies[0].Value != "" ||
+		cookies[0].Path != "/" || cookies[0].MaxAge >= 0 {
+		t.Fatalf("expected an expired session cookie, got %v", cookies)
+	}
+	if len(store.sessions) != 0 || len(store.authenticatedSessions) != 0 || len(store.credentials) != 1 {
+		t.Fatal("logout did not clear session state or removed the credential")
+	}
+
+	profile := httptest.NewRequest(http.MethodGet, "/profile", nil)
+	profile.AddCookie(cookie)
+	response = httptest.NewRecorder()
+	store.handleProfile(response, profile)
+	if response.Code != http.StatusFound {
+		t.Errorf("profile with the previous cookie returned %d, want 302", response.Code)
+	}
+}
+
 func TestLoginOptions(t *testing.T) {
 	tests := []struct {
 		name        string
