@@ -33,14 +33,14 @@
           throw new Error(`登録オプションの取得に失敗しました（HTTP ${response.status}）。`);
         }
 
-        const publicKey = await response.json();
-        publicKey.challenge = decodeBase64URL(publicKey.challenge);
-        publicKey.user.id = decodeBase64URL(publicKey.user.id);
-        for (const credential of publicKey.excludeCredentials) {
+        const registrationOptions = await response.json();
+        registrationOptions.challenge = decodeBase64URL(registrationOptions.challenge);
+        registrationOptions.user.id = decodeBase64URL(registrationOptions.user.id);
+        for (const credential of registrationOptions.excludeCredentials) {
           credential.id = decodeBase64URL(credential.id);
         }
 
-        const credential = await navigator.credentials.create({ publicKey });
+        const credential = await navigator.credentials.create({ publicKey: registrationOptions });
         const finish = await fetch("/register/finish", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
