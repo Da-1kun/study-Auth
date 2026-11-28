@@ -114,6 +114,7 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 		return
 	}
 	var credential struct {
+		RawID    string `json:"rawId"`
 		Response struct {
 			ClientDataJSON    string `json:"clientDataJSON"`
 			AttestationObject string `json:"attestationObject"`
@@ -157,7 +158,17 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// credential ID と公開鍵の検証・保存は後続の項目で追加する。
+	rawID, err := base64.RawURLEncoding.Strict().DecodeString(credential.RawID)
+	if err != nil {
+		http.Error(w, "invalid rawId encoding", http.StatusBadRequest)
+		return
+	}
+	if _, err := parseRegistrationPublicKey(authData, rawID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 検証済みの credential ID と公開鍵の保存は次の項目で追加する。
 	w.WriteHeader(http.StatusNoContent)
 }
 

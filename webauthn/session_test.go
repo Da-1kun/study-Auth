@@ -155,6 +155,7 @@ func TestRegistrationFinishClientData(t *testing.T) {
 		want int
 	}{
 		{"valid client data", registrationFinishBody(valid), http.StatusNoContent},
+		{"rawId mismatch", strings.Replace(registrationFinishBody(valid), `"rawId":"AQID"`, `"rawId":"BAUG"`, 1), http.StatusBadRequest},
 		{"short authData header", strings.Replace(registrationFinishBody(valid), registrationAttestationFixture, "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YUEB", 1), http.StatusBadRequest},
 		{"missing attestation object", fmt.Sprintf(`{"response":{"clientDataJSON":%q}}`, base64.RawURLEncoding.EncodeToString([]byte(valid))), http.StatusBadRequest},
 		{"missing body", "", http.StatusBadRequest},
@@ -186,10 +187,10 @@ func TestRegistrationFinishClientData(t *testing.T) {
 	}
 }
 
-// CBOR の none attestation。authData は localhost の RP ID ハッシュ、UP・UV・AT、signCount 0。
-const registrationAttestationFixture = "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVglSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAA"
+// none attestation。credential ID は 01 02 03、公開鍵はテスト用の P-256 の生成点。
+const registrationAttestationFixture = "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YViHSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwECA6UBAgMmIAEhWCBrF9Hy4SxCR_i85uVjpEDydwN9gS3rM6D0oTlF2JjCliJYIE_jQuL-Gn-bjufrSnwPnhYrzjNXazFezsu2QGg3v1H1"
 
 func registrationFinishBody(clientData string) string {
 	encoded := base64.RawURLEncoding.EncodeToString([]byte(clientData))
-	return fmt.Sprintf(`{"response":{"clientDataJSON":%q,"attestationObject":%q}}`, encoded, registrationAttestationFixture)
+	return fmt.Sprintf(`{"rawId":"AQID","response":{"clientDataJSON":%q,"attestationObject":%q}}`, encoded, registrationAttestationFixture)
 }
