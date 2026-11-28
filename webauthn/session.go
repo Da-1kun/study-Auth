@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 )
@@ -20,13 +21,15 @@ const (
 	loginOperation    = "login"
 	rpID              = "localhost"
 	es256Algorithm    = -7
+	maxCredentialBody = 64 << 10
 )
 
 type pendingChallenge struct {
-	value      string
-	operation  string
-	userHandle string
-	expiresAt  time.Time
+	value            string
+	operation        string
+	userHandle       string
+	expiresAt        time.Time
+	allowCredentials []credentialDescriptor
 }
 
 type registeredCredential struct {
@@ -87,7 +90,9 @@ type credentialDescriptor struct {
 }
 
 func (s *sessionStore) handleRegistrationOptions(w http.ResponseWriter, r *http.Request) {
-	challenge := s.issueChallenge(w, r, registerOperation, demoUserHandle)
+	challenge := s.issueChallenge(w, r, pendingChallenge{
+		operation: registerOperation, userHandle: demoUserHandle,
+	})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(registrationOptions{
@@ -114,7 +119,11 @@ func (s *sessionStore) handleLoginOptions(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	challenge := s.issueChallenge(w, r, loginOperation, demoUserHandle)
+	challenge := s.issueChallenge(w, r, pendingChallenge{
+		operation:        loginOperation,
+		userHandle:       demoUserHandle,
+		allowCredentials: credentials,
+	})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(loginOptions{
 		Challenge:        challenge,
@@ -144,8 +153,7 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	const maxRegistrationBody = 64 << 10
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRegistrationBody))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCredentialBody))
 	if err != nil {
 		http.Error(w, "could not read registration response", http.StatusBadRequest)
 		return
@@ -220,6 +228,58 @@ func (s *sessionStore) handleRegistrationFinish(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *sessionStore) handleLoginFinish(w http.ResponseWriter, r *http.Request) {
+	pending, ok := s.consumeChallenge(r, loginOperation)
+	if !ok {
+		http.Error(w, "no valid login challenge", http.StatusBadRequest)
+		return
+	}
+
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCredentialBody))
+	if err != nil {
+		http.Error(w, "could not read assertion response", http.StatusBadRequest)
+		return
+	}
+	var assertion struct {
+		RawID    string `json:"rawId"`
+		Response struct {
+			UserHandle *string `json:"userHandle"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(body, &assertion); err != nil {
+		http.Error(w, "invalid assertion response JSON", http.StatusBadRequest)
+		return
+	}
+
+	rawID, err := base64.RawURLEncoding.Strict().DecodeString(assertion.RawID)
+	if err != nil || len(rawID) == 0 {
+		http.Error(w, "invalid rawId encoding", http.StatusBadRequest)
+		return
+	}
+	id := base64.RawURLEncoding.EncodeToString(rawID)
+	if !slices.Contains(pending.allowCredentials, credentialDescriptor{Type: "public-key", ID: id}) {
+		http.Error(w, "credential is not allowed for this login", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	credential, ok := s.credentials[id]
+	s.mu.Unlock()
+	if !ok || credential.userHandle != pending.userHandle {
+		http.Error(w, "credential does not belong to this account", http.StatusBadRequest)
+		return
+	}
+	if assertion.Response.UserHandle != nil {
+		handle, err := base64.RawURLEncoding.Strict().DecodeString(*assertion.Response.UserHandle)
+		if err != nil || base64.RawURLEncoding.EncodeToString(handle) != credential.userHandle {
+			http.Error(w, "unexpected userHandle", http.StatusBadRequest)
+			return
+		}
+	}
+
+	http.Error(w, "assertion verification is not implemented", http.StatusNotImplemented)
+}
+
 func (s *sessionStore) saveCredential(id string, credential registeredCredential) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -258,15 +318,10 @@ func (s *sessionStore) consumeChallenge(r *http.Request, operation string) (pend
 	return pending, true
 }
 
-func (s *sessionStore) issueChallenge(w http.ResponseWriter, r *http.Request, operation, userHandle string) string {
-	value := randomToken()
+func (s *sessionStore) issueChallenge(w http.ResponseWriter, r *http.Request, pending pendingChallenge) string {
 	now := time.Now()
-	pending := pendingChallenge{
-		value:      value,
-		operation:  operation,
-		userHandle: userHandle,
-		expiresAt:  now.Add(challengeLifetime),
-	}
+	pending.value = randomToken()
+	pending.expiresAt = now.Add(challengeLifetime)
 
 	cookie, _ := r.Cookie(sessionCookieName)
 	s.mu.Lock()
@@ -279,7 +334,7 @@ func (s *sessionStore) issueChallenge(w http.ResponseWriter, r *http.Request, op
 		if _, ok := s.sessions[cookie.Value]; ok {
 			s.sessions[cookie.Value] = pending
 			s.mu.Unlock()
-			return value
+			return pending.value
 		}
 	}
 	id := randomToken()
@@ -294,7 +349,7 @@ func (s *sessionStore) issueChallenge(w http.ResponseWriter, r *http.Request, op
 		SameSite: http.SameSiteLaxMode,
 		Secure:   r.TLS != nil,
 	})
-	return value
+	return pending.value
 }
 
 func randomToken() string {

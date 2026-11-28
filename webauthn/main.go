@@ -25,9 +25,7 @@ func main() {
 	mux.HandleFunc("POST /register/options", sessions.handleRegistrationOptions)
 	mux.HandleFunc("POST /register/finish", sessions.handleRegistrationFinish)
 	mux.HandleFunc("POST /login/options", sessions.handleLoginOptions)
-	mux.HandleFunc("POST /login/finish", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "assertion verification is not implemented", http.StatusNotImplemented)
-	})
+	mux.HandleFunc("POST /login/finish", sessions.handleLoginFinish)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(indexHTML)

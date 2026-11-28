@@ -70,7 +70,8 @@ func TestLoginOptions(t *testing.T) {
 				t.Fatal("expected a 32-byte challenge and one session cookie")
 			}
 			pending := store.sessions[cookies[0].Value]
-			if pending.value != options.Challenge || pending.operation != loginOperation || pending.userHandle != demoUserHandle {
+			if pending.value != options.Challenge || pending.operation != loginOperation || pending.userHandle != demoUserHandle ||
+				!slices.Equal(pending.allowCredentials, options.AllowCredentials) {
 				t.Fatal("login challenge was not bound to the account and operation")
 			}
 
@@ -79,6 +80,58 @@ func TestLoginOptions(t *testing.T) {
 			store.handleLoginOptions(next, request)
 			if next.Code != http.StatusOK || store.sessions[cookies[0].Value].value == pending.value {
 				t.Fatal("repeated login did not replace the challenge")
+			}
+		})
+	}
+}
+
+func TestLoginFinishCredentialChecks(t *testing.T) {
+	tests := []struct {
+		name       string
+		rawID      string
+		userHandle string
+		owner      string
+		want       int
+	}{
+		{"matching credential and user handle", "AQID", fmt.Sprintf(`{"userHandle":%q}`, demoUserHandle), demoUserHandle, http.StatusNotImplemented},
+		{"matching credential without user handle", "AQID", "{}", demoUserHandle, http.StatusNotImplemented},
+		{"credential registered after options", "BAUG", "{}", demoUserHandle, http.StatusBadRequest},
+		{"credential belongs to another account", "AQID", "{}", "another-user", http.StatusBadRequest},
+		{"unknown credential", "AQID", "{}", "", http.StatusBadRequest},
+		{"invalid credential ID", "!", "{}", demoUserHandle, http.StatusBadRequest},
+		{"wrong user handle", "AQID", `{"userHandle":"AQID"}`, demoUserHandle, http.StatusBadRequest},
+		{"invalid user handle", "AQID", `{"userHandle":"!"}`, demoUserHandle, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &sessionStore{
+				sessions: make(map[string]pendingChallenge),
+				credentials: map[string]registeredCredential{
+					"AQID": {userHandle: demoUserHandle},
+				},
+			}
+			options := httptest.NewRecorder()
+			store.handleLoginOptions(options, httptest.NewRequest(http.MethodPost, "/login/options", nil))
+			cookies := options.Result().Cookies()
+			if options.Code != http.StatusOK || len(cookies) != 1 {
+				t.Fatal("expected login options and a session cookie")
+			}
+			if tt.owner == "" {
+				delete(store.credentials, tt.rawID)
+			} else {
+				store.credentials[tt.rawID] = registeredCredential{userHandle: tt.owner}
+			}
+
+			body := fmt.Sprintf(`{"rawId":%q,"response":%s}`, tt.rawID, tt.userHandle)
+			request := httptest.NewRequest(http.MethodPost, "/login/finish", strings.NewReader(body))
+			request.AddCookie(cookies[0])
+			response := httptest.NewRecorder()
+			store.handleLoginFinish(response, request)
+			if response.Code != tt.want {
+				t.Errorf("status = %d, want %d, body = %q", response.Code, tt.want, response.Body.String())
+			}
+			if len(store.sessions) != 0 {
+				t.Error("login challenge was not consumed")
 			}
 		})
 	}
